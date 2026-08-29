@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuid } from 'uuid';
 import { db } from '@/lib/db';
+import { initDB } from '@/lib/init';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
+    await initDB();
     const { experimentId } = await params;
     const body = await request.json();
     const { variantId, text } = body;
@@ -20,7 +21,7 @@ export async function POST(
       return NextResponse.json({ error: 'Feedback cannot be empty' }, { status: 400 });
     }
 
-    await db`INSERT INTO feedback (id, experiment_id, variant_id, text, created_at) VALUES (${uuid()}, ${experimentId}, ${variantId}, ${sanitized}, NOW())`;
+    await db`INSERT INTO feedback (id, experiment_id, variant_id, text, created_at) VALUES (${crypto.randomUUID()}, ${experimentId}, ${variantId}, ${sanitized}, NOW())`;
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
@@ -35,6 +36,7 @@ export async function GET(
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
+    await initDB();
     const { experimentId } = await params;
 
     const feedback = await db`SELECT f.id, f.text, f.created_at, f.variant_id, v.name as variant_name FROM feedback f JOIN variants v ON f.variant_id = v.id WHERE f.experiment_id = ${experimentId} ORDER BY f.created_at DESC`;

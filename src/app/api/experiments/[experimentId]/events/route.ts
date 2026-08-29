@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuid } from 'uuid';
 import { db } from '@/lib/db';
+import { initDB } from '@/lib/init';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
+    await initDB();
     const { experimentId } = await params;
     const body = await request.json();
     const { variantId, eventType, sessionId, metadata } = body;
@@ -20,7 +21,7 @@ export async function POST(
       return NextResponse.json({ error: 'Experiment not found' }, { status: 404 });
     }
 
-    await db`INSERT INTO analytics_events (id, experiment_id, variant_id, event_type, session_id, metadata, created_at) VALUES (${uuid()}, ${experimentId}, ${variantId}, ${eventType}, ${sessionId || null}, ${metadata || null}, NOW())`;
+    await db`INSERT INTO analytics_events (id, experiment_id, variant_id, event_type, session_id, metadata, created_at) VALUES (${crypto.randomUUID()}, ${experimentId}, ${variantId}, ${eventType}, ${sessionId || null}, ${metadata || null}, NOW())`;
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
@@ -35,6 +36,7 @@ export async function GET(
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
+    await initDB();
     const { experimentId } = await params;
 
     const variants = await db<{ id: string; name: string }>`SELECT id, name FROM variants WHERE experiment_id = ${experimentId}`;

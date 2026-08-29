@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { initDB } from '@/lib/init';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
+    await initDB();
     const { experimentId } = await params;
     const { searchParams } = new URL(request.url);
     const variantName = searchParams.get('name');

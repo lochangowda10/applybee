@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuid } from 'uuid';
 import { db } from '@/lib/db';
+import { initDB } from '@/lib/init';
 
 export async function POST(request: NextRequest) {
   try {
+    await initDB();
     const body = await request.json();
     const { projectId, targetUser, alternative, differentiation, desiredAction } = body;
 
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
     if (existing.length > 0) {
       await db`UPDATE founder_contexts SET target_user = ${targetUser || null}, alternative = ${alternative || null}, differentiation = ${differentiation || null}, desired_action = ${desiredAction || null} WHERE id = ${existing[0].id}`;
     } else {
-      await db`INSERT INTO founder_contexts (id, project_id, target_user, alternative, differentiation, desired_action, created_at) VALUES (${uuid()}, ${projectId}, ${targetUser || null}, ${alternative || null}, ${differentiation || null}, ${desiredAction || null}, NOW())`;
+      await db`INSERT INTO founder_contexts (id, project_id, target_user, alternative, differentiation, desired_action, created_at) VALUES (${crypto.randomUUID()}, ${projectId}, ${targetUser || null}, ${alternative || null}, ${differentiation || null}, ${desiredAction || null}, NOW())`;
     }
 
     return NextResponse.json({ success: true });

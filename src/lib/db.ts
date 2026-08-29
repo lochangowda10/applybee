@@ -30,3 +30,15 @@ export async function db<T = Record<string, unknown>>(
   if (result && typeof result === 'object' && 'rows' in result) return (result as { rows: T[] }).rows;
   return [];
 }
+
+/**
+ * Execute raw SQL using tagged template syntax (for DDL / schema init).
+ * Usage: await sqlExec`CREATE TABLE IF NOT EXISTS ...`
+ */
+export async function sqlExec(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<void> {
+  const sql = getRawSql();
+  await sql(strings, ...values);
+}

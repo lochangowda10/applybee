@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuid } from 'uuid';
 import { db } from '@/lib/db';
+import { initDB } from '@/lib/init';
 import { generatePositioning, generateLandingContent } from '@/lib/ai/analysis';
 
 export async function POST(request: NextRequest) {
   try {
+    await initDB();
     const body = await request.json();
     const { projectId } = body;
 
@@ -29,11 +30,11 @@ export async function POST(request: NextRequest) {
       desired_action: contextRow?.desired_action || undefined,
     });
 
-    const experimentId = uuid();
+    const experimentId = crypto.randomUUID();
     await db`INSERT INTO experiments (id, project_id, status, created_at) VALUES (${experimentId}, ${projectId}, 'active', NOW())`;
 
     for (const hypothesis of hypotheses) {
-      const variantId = uuid();
+      const variantId = crypto.randomUUID();
       const landingContent = await generateLandingContent(hypothesis, analysis);
       await db`INSERT INTO variants (id, experiment_id, name, positioning_json, landing_content_json, created_at) VALUES (${variantId}, ${experimentId}, ${hypothesis.id}, ${JSON.stringify(hypothesis)}, ${JSON.stringify(landingContent)}, NOW())`;
     }

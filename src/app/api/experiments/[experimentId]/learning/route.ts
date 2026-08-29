@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuid } from 'uuid';
 import { db } from '@/lib/db';
+import { initDB } from '@/lib/init';
 import { analyzeExperimentResults } from '@/lib/ai/analysis';
 
 export async function POST(
@@ -8,6 +8,7 @@ export async function POST(
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
+    await initDB();
     const { experimentId } = await params;
 
     const experiments = await db<{ id: string; project_id: string }>`SELECT id, project_id FROM experiments WHERE id = ${experimentId}`;
@@ -44,7 +45,7 @@ export async function POST(
 
     const growthAnalysis = await analyzeExperimentResults(dataA, dataB, analysis);
 
-    await db`INSERT INTO experiment_learnings (id, experiment_id, analysis_json, created_at) VALUES (${uuid()}, ${experimentId}, ${JSON.stringify(growthAnalysis)}, NOW())`;
+    await db`INSERT INTO experiment_learnings (id, experiment_id, analysis_json, created_at) VALUES (${crypto.randomUUID()}, ${experimentId}, ${JSON.stringify(growthAnalysis)}, NOW())`;
     await db`UPDATE experiments SET status = 'learned' WHERE id = ${experimentId}`;
 
     return NextResponse.json({ analysis: growthAnalysis });
@@ -60,6 +61,7 @@ export async function GET(
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
+    await initDB();
     const { experimentId } = await params;
 
     const learnings = await db<{ id: string; analysis_json: string; created_at: string }>`SELECT id, analysis_json, created_at FROM experiment_learnings WHERE experiment_id = ${experimentId} ORDER BY created_at DESC`;
