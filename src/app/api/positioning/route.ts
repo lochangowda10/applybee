@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuid } from 'uuid';
-import { getDb } from '@/lib/db';
+import { db } from '@/lib/db';
 import { generatePositioning, generateLandingContent } from '@/lib/ai/analysis';
 
 export async function POST(request: NextRequest) {
@@ -12,30 +12,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Project ID required' }, { status: 400 });
     }
 
-    const db = getDb();
-
-    // Get project analysis
-    const analysisRow = db.prepare(
-      'SELECT analysis_json FROM product_analyses WHERE project_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).get(projectId) as { analysis_json: string } | undefined;
-
-    if (!analysisRow) {
+    const analysisRows = await db<{ analysis_json: string }>`SELECT analysis_json FROM product_analyses WHERE project_id = ${projectId} ORDER BY created_at DESC LIMIT 1`;
+    if (analysisRows.length === 0) {
       return NextResponse.json({ error: 'No analysis found for project' }, { status: 404 });
     }
 
-    // Get founder context
-    const contextRow = db.prepare(
-      'SELECT * FROM founder_contexts WHERE project_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).get(projectId) as {
-      target_user: string | null;
-      alternative: string | null;
-      differentiation: string | null;
-      desired_action: string | null;
-    } | undefined;
+    const contextRows = await db<{ target_user: string | null; alternative: string | null; differentiation: string | null; desired_action: string | null }>`SELECT * FROM founder_contexts WHERE project_id = ${projectId} ORDER BY created_at DESC LIMIT 1`;
+    const contextRow = contextRows[0];
 
-    const analysis = JSON.parse(analysisRow.analysis_json);
+    const analysis = JSON.parse(analysisRows[0].analysis_json);
 
-    // Generate positioning hypotheses
     const hypotheses = await generatePositioning(analysis, {
       target_user: contextRow?.target_user || undefined,
       alternative: contextRow?.alternative || undefined,
@@ -43,30 +29,20 @@ export async function POST(request: NextRequest) {
       desired_action: contextRow?.desired_action || undefined,
     });
 
-    // Create experiment
     const experimentId = uuid();
-    db.prepare('INSERT INTO experiments (id, project_id, status, created_at) VALUES (?, ?, ?, datetime("now"))')
-      .run(experimentId, projectId, 'active');
+    await db`INSERT INTO experiments (id, project_id, status, created_at) VALUES (${experimentId}, ${projectId}, 'active', NOW())`;
 
-    // Generate landing content for each variant
     for (const hypothesis of hypotheses) {
       const variantId = uuid();
       const landingContent = await generateLandingContent(hypothesis, analysis);
-
-      db.prepare(`
-        INSERT INTO variants (id, experiment_id, name, positioning_json, landing_content_json, created_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
-      `).run(variantId, experimentId, hypothesis.id, JSON.stringify(hypothesis), JSON.stringify(landingContent));
+      await db`INSERT INTO variants (id, experiment_id, name, positioning_json, landing_content_json, created_at) VALUES (${variantId}, ${experimentId}, ${hypothesis.id}, ${JSON.stringify(hypothesis)}, ${JSON.stringify(landingContent)}, NOW())`;
     }
 
-    // Return experiment with variants
-    const variants = db.prepare(
-      'SELECT * FROM variants WHERE experiment_id = ?'
-    ).all(experimentId) as { id: string; name: string; positioning_json: string; landing_content_json: string }[];
+    const fullVariants = await db<{ id: string; name: string; positioning_json: string; landing_content_json: string }>`SELECT id, name, positioning_json, landing_content_json FROM variants WHERE experiment_id = ${experimentId}`;
 
     return NextResponse.json({
       experimentId,
-      variants: variants.map(v => ({
+      variants: fullVariants.map(v => ({
         id: v.id,
         name: v.name,
         positioning: JSON.parse(v.positioning_json),
@@ -74,7 +50,7 @@ export async function POST(request: NextRequest) {
       })),
     });
   } catch (error: unknown) {
-    console.error('Positioning error:', error);
+    console.error('[POSITIONING] Error:', error);
     const message = error instanceof Error ? error.message : 'Positioning generation failed';
     return NextResponse.json({ error: message }, { status: 500 });
   }

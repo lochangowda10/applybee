@@ -1,61 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuid } from 'uuid';
-import { getDb } from '@/lib/db';
-import { analyzeExperimentResults, type GrowthAnalysis } from '@/lib/ai/analysis';
+import { db } from '@/lib/db';
+import { analyzeExperimentResults } from '@/lib/ai/analysis';
 
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
     const { experimentId } = await params;
-    const db = getDb();
 
-    // Get experiment
-    const experiment = db.prepare(
-      'SELECT * FROM experiments WHERE id = ?'
-    ).get(experimentId) as { id: string; project_id: string } | undefined;
-
-    if (!experiment) {
+    const experiments = await db<{ id: string; project_id: string }>`SELECT id, project_id FROM experiments WHERE id = ${experimentId}`;
+    if (experiments.length === 0) {
       return NextResponse.json({ error: 'Experiment not found' }, { status: 404 });
     }
+    const experiment = experiments[0];
 
-    // Get analysis
-    const analysisRow = db.prepare(
-      'SELECT analysis_json FROM product_analyses WHERE project_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).get(experiment.project_id) as { analysis_json: string } | undefined;
-
-    if (!analysisRow) {
+    const analysisRows = await db<{ analysis_json: string }>`SELECT analysis_json FROM product_analyses WHERE project_id = ${experiment.project_id} ORDER BY created_at DESC LIMIT 1`;
+    if (analysisRows.length === 0) {
       return NextResponse.json({ error: 'No analysis found' }, { status: 404 });
     }
+    const analysis = JSON.parse(analysisRows[0].analysis_json);
 
-    const analysis = JSON.parse(analysisRow.analysis_json);
-
-    // Get variant analytics
-    const variants = db.prepare(
-      'SELECT id, name FROM variants WHERE experiment_id = ?'
-    ).all(experimentId) as { id: string; name: string }[];
+    const variants = await db<{ id: string; name: string }>`SELECT id, name FROM variants WHERE experiment_id = ${experimentId}`;
 
     const variantData = await Promise.all(
       variants.map(async (v) => {
-        const views = db.prepare(
-          `SELECT COUNT(DISTINCT session_id) as count FROM analytics_events
-           WHERE experiment_id = ? AND variant_id = ? AND event_type = 'page_view'`
-        ).get(experimentId, v.id) as { count: number };
-
-        const clicks = db.prepare(
-          `SELECT COUNT(*) as count FROM analytics_events
-           WHERE experiment_id = ? AND variant_id = ? AND event_type = 'cta_click'`
-        ).get(experimentId, v.id) as { count: number };
-
-        const feedbackEntries = db.prepare(
-          `SELECT text FROM feedback WHERE experiment_id = ? AND variant_id = ?`
-        ).all(experimentId, v.id) as { text: string }[];
+        const viewsRows = await db<{ count: string }>`SELECT COUNT(DISTINCT session_id) as count FROM analytics_events WHERE experiment_id = ${experimentId} AND variant_id = ${v.id} AND event_type = 'page_view'`;
+        const clicksRows = await db<{ count: string }>`SELECT COUNT(*) as count FROM analytics_events WHERE experiment_id = ${experimentId} AND variant_id = ${v.id} AND event_type = 'cta_click'`;
+        const feedbackEntries = await db<{ text: string }>`SELECT text FROM feedback WHERE experiment_id = ${experimentId} AND variant_id = ${v.id}`;
 
         return {
           name: v.name,
-          views: views.count,
-          clicks: clicks.count,
+          views: parseInt(viewsRows[0]?.count || '0', 10),
+          clicks: parseInt(clicksRows[0]?.count || '0', 10),
           feedback: feedbackEntries.map(f => f.text),
         };
       })
@@ -64,18 +42,14 @@ export async function POST(
     const dataA = variantData.find(v => v.name === 'a') || { views: 0, clicks: 0, feedback: [] };
     const dataB = variantData.find(v => v.name === 'b') || { views: 0, clicks: 0, feedback: [] };
 
-    // Run AI analysis
     const growthAnalysis = await analyzeExperimentResults(dataA, dataB, analysis);
 
-    // Store learning
-    db.prepare(`
-      INSERT INTO experiment_learnings (id, experiment_id, analysis_json, created_at)
-      VALUES (?, ?, ?, datetime('now'))
-    `).run(uuid(), experimentId, JSON.stringify(growthAnalysis));
+    await db`INSERT INTO experiment_learnings (id, experiment_id, analysis_json, created_at) VALUES (${uuid()}, ${experimentId}, ${JSON.stringify(growthAnalysis)}, NOW())`;
+    await db`UPDATE experiments SET status = 'learned' WHERE id = ${experimentId}`;
 
     return NextResponse.json({ analysis: growthAnalysis });
   } catch (error: unknown) {
-    console.error('Learning error:', error);
+    console.error('[LEARNING] Error:', error);
     const message = error instanceof Error ? error.message : 'Failed to generate analysis';
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -87,21 +61,18 @@ export async function GET(
 ) {
   try {
     const { experimentId } = await params;
-    const db = getDb();
 
-    const learnings = db.prepare(
-      'SELECT * FROM experiment_learnings WHERE experiment_id = ? ORDER BY created_at DESC'
-    ).all(experimentId) as { id: string; analysis_json: string; created_at: string }[];
+    const learnings = await db<{ id: string; analysis_json: string; created_at: string }>`SELECT id, analysis_json, created_at FROM experiment_learnings WHERE experiment_id = ${experimentId} ORDER BY created_at DESC`;
 
     return NextResponse.json({
-      learnings: learnings.map((l) => ({
+      learnings: learnings.map(l => ({
         id: l.id,
         analysis: JSON.parse(l.analysis_json),
         created_at: l.created_at,
       })),
     });
   } catch (error: unknown) {
-    console.error('Learning fetch error:', error);
+    console.error('[LEARNING:GET] Error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch learnings';
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -1,8 +1,9 @@
 /**
- * AI Provider Abstraction Layer
+ * AI Provider Abstraction Layer (Production-hardened)
  *
- * Uses OpenAI-compatible API. Set OPENAI_API_KEY and OPENAI_BASE_URL in .env
- * Falls back to a demo/mock mode when no API key is configured.
+ * Supports any OpenAI-compatible API.
+ * Falls back to demo/mock mode when no API key is configured.
+ * Shows clear DEMO MODE indicator when not using real AI.
  */
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
@@ -13,12 +14,23 @@ export function isAIConfigured(): boolean {
   return OPENAI_API_KEY.length > 0;
 }
 
+export function getAIStatus(): { configured: boolean; provider: string; model: string } {
+  return {
+    configured: isAIConfigured(),
+    provider: OPENAI_BASE_URL.includes('openai') ? 'OpenAI' : OPENAI_BASE_URL,
+    model: MODEL,
+  };
+}
+
 export async function chatCompletion(
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
   options: { temperature?: number; maxTokens?: number; json?: boolean } = {}
 ): Promise<string> {
   if (!isAIConfigured()) {
-    throw new Error('AI not configured. Set OPENAI_API_KEY in .env');
+    throw new Error(
+      'AI not configured. Set OPENAI_API_KEY in your environment variables. ' +
+      'The application is running in DEMO MODE with mock responses.'
+    );
   }
 
   const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
@@ -38,7 +50,13 @@ export async function chatCompletion(
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`AI API error ${response.status}: ${err}`);
+    if (response.status === 429) {
+      throw new Error('AI provider rate limit reached. Please try again in a moment.');
+    }
+    if (response.status === 401) {
+      throw new Error('AI provider authentication failed. Check your OPENAI_API_KEY.');
+    }
+    throw new Error(`AI API error (${response.status}): ${err.slice(0, 200)}`);
   }
 
   const data = await response.json();
@@ -52,5 +70,9 @@ export async function chatJSON<T>(
   const raw = await chatCompletion(messages, { ...options, json: true });
   // Strip markdown code fences if present
   const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-  return JSON.parse(cleaned) as T;
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    throw new Error('AI returned invalid JSON. Please try again.');
+  }
 }

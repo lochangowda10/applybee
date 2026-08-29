@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowRight, ArrowLeft, Check, Copy, QrCode, ExternalLink, BarChart3, Lightbulb, Users, MessageSquare, TrendingUp, Loader2, Zap, Globe, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowRight, ArrowLeft, Check, Copy, ExternalLink, BarChart3, Lightbulb, Users, MessageSquare, TrendingUp, Loader2, Zap, Globe } from "lucide-react";
 import QRCode from "qrcode";
 
 // Types
@@ -110,40 +110,41 @@ export default function ProjectPage() {
 
   // Loading states
   const [positioningLoading, setPositioningLoading] = useState(false);
-  const [deploying, setDeploying] = useState(false);
 
   // Copy feedback
   const [copied, setCopied] = useState<string | null>(null);
 
-  // Fetch or load analysis
-  const loadAnalysis = useCallback(async () => {
-    // Check sessionStorage first
-    const cached = sessionStorage.getItem(`project_${projectId}`);
-    if (cached) {
-      const data = JSON.parse(cached);
-      setAnalysis(data.analysis);
-      setEditingAnalysis(data.analysis);
-      setAnalysisProgress(5);
-      // Simulate progress
-      for (let i = 0; i <= 5; i++) {
-        await new Promise(r => setTimeout(r, 400));
+  // Load analysis on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const cached = sessionStorage.getItem(`project_${projectId}`);
+      if (cached) {
+        const data = JSON.parse(cached);
+        if (cancelled) return;
+        setAnalysis(data.analysis);
+        setEditingAnalysis(data.analysis);
+        // Animate progress steps
+        for (let i = 0; i <= 5; i++) {
+          await new Promise(r => setTimeout(r, 400));
+          if (cancelled) return;
+          setAnalysisProgress(i);
+        }
+        setStep("analysis");
+        return;
+      }
+      // Fallback
+      if (cancelled) return;
+      setStep("analyzing");
+      for (let i = 0; i <= ANALYSIS_STEPS.length; i++) {
+        await new Promise(r => setTimeout(r, 600));
+        if (cancelled) return;
         setAnalysisProgress(i);
       }
-      setStep("analysis");
-      return;
     }
-
-    // Fallback: try fetching
-    setStep("analyzing");
-    for (let i = 0; i <= ANALYSIS_STEPS.length; i++) {
-      await new Promise(r => setTimeout(r, 600));
-      setAnalysisProgress(i);
-    }
+    load();
+    return () => { cancelled = true; };
   }, [projectId]);
-
-  useEffect(() => {
-    loadAnalysis();
-  }, [loadAnalysis]);
 
   // Save founder context and generate positioning
   const handleContinueToPositioning = async () => {
@@ -177,11 +178,15 @@ export default function ProjectPage() {
       setExperimentId(data.experimentId);
       setVariants(data.variants);
 
-      // Generate QR codes
-      const origin = window.location.origin;
+      // Generate QR codes - use production URL if available, else current origin
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       const qrMap: Record<string, string> = {};
+      // Primary QR: /x/{experimentId} (random A/B assignment)
+      const primaryUrl = `${baseUrl}/x/${data.experimentId}`;
+      qrMap['primary'] = await QRCode.toDataURL(primaryUrl, { width: 160, margin: 1 });
+      // Individual variant QRs
       for (const v of data.variants) {
-        const url = `${origin}/e/${data.experimentId}/${v.name}`;
+        const url = `${baseUrl}/e/${data.experimentId}/${v.name}`;
         qrMap[v.name] = await QRCode.toDataURL(url, { width: 160, margin: 1 });
       }
       setQrCodes(qrMap);
@@ -548,7 +553,8 @@ export default function ProjectPage() {
 
   // Step: Live Experiments
   if (step === "live" && variants.length > 0 && experimentId) {
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== "undefined" ? window.location.origin : "");
+    const primaryUrl = `${baseUrl}/x/${experimentId}`;
     return (
       <div className="min-h-screen pt-14">
         <nav className="fixed top-0 w-full border-b border-border/50 bg-background/80 backdrop-blur-xl z-50">
@@ -566,17 +572,44 @@ export default function ProjectPage() {
         <div className="max-w-4xl mx-auto px-6 py-16">
           <h1 className="text-3xl font-bold mb-2">Experiments are live.</h1>
           <p className="text-muted-foreground text-sm mb-10">
-            Share these URLs with real people. Every visit is tracked.
+            Share this QR code with real people. Every visit is tracked.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Primary QR - the one to share */}
+          <div className="rounded-xl border border-border/60 bg-card p-8 mb-10 text-center">
+            <div className="text-xs font-medium text-muted-foreground mb-4 uppercase tracking-wider">Share this QR code</div>
+            <div className="flex flex-col items-center gap-4">
+              {qrCodes['primary'] && (
+                <div className="p-4 bg-white rounded-xl shadow-sm">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={qrCodes['primary']} alt="Experiment QR code" width={180} height={180} />
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <code className="text-sm bg-muted/30 px-3 py-1.5 rounded-lg">{primaryUrl}</code>
+                <button
+                  onClick={() => copyUrl(primaryUrl, 'primary')}
+                  className="p-2 rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  {copied === 'primary' ? (
+                    <Check className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <Copy className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground/60">Visitors are randomly assigned to Variant A or B</p>
+            </div>
+          </div>
+
+          {/* Individual variants (secondary) */}
+          <div className="text-xs font-medium text-muted-foreground mb-4 uppercase tracking-wider">Direct variant links</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
             {variants.map((v) => {
-              const url = `${origin}/e/${experimentId}/${v.name}`;
+              const url = `${baseUrl}/e/${experimentId}/${v.name}`;
               return (
                 <div key={v.id} className="rounded-xl border border-border/60 bg-card overflow-hidden">
-                  {/* Color bar */}
                   <div className="h-2" style={{ background: `linear-gradient(90deg, ${v.positioning.color_scheme.primary}, ${v.positioning.color_scheme.accent})` }} />
-
                   <div className="p-6">
                     <div className="flex items-center gap-2 mb-3">
                       <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-muted/50">
@@ -584,44 +617,16 @@ export default function ProjectPage() {
                       </span>
                       <span className="text-xs text-muted-foreground">{v.positioning.type}</span>
                     </div>
-
                     <h3 className="text-lg font-semibold mb-1">&ldquo;{v.positioning.headline}&rdquo;</h3>
                     <p className="text-sm text-muted-foreground mb-4">{v.positioning.subheadline}</p>
-
-                    <div className="flex gap-4">
-                      {/* QR Code */}
-                      {qrCodes[v.name] && (
-                        <div className="p-2 bg-white rounded-lg">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={qrCodes[v.name]} alt={`QR for variant ${v.name}`} width={80} height={80} />
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <code className="text-xs bg-muted/30 px-2 py-1 rounded flex-1 truncate">{url}</code>
-                          <button
-                            onClick={() => copyUrl(url, v.name)}
-                            className="p-1.5 rounded-md hover:bg-muted/50 transition-colors"
-                          >
-                            {copied === v.name ? (
-                              <Check className="w-4 h-4 text-green-500" />
-                            ) : (
-                              <Copy className="w-4 h-4 text-muted-foreground" />
-                            )}
-                          </button>
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-1.5 rounded-md hover:bg-muted/50 transition-colors"
-                          >
-                            <ExternalLink className="w-4 h-4 text-muted-foreground" />
-                          </a>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          CTA: &ldquo;{v.positioning.cta}&rdquo;
-                        </p>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs bg-muted/30 px-2 py-1 rounded flex-1 truncate">{url}</code>
+                      <button onClick={() => copyUrl(url, v.name)} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors">
+                        {copied === v.name ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
+                      </button>
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md hover:bg-muted/50 transition-colors">
+                        <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                      </a>
                     </div>
                   </div>
                 </div>
@@ -630,22 +635,14 @@ export default function ProjectPage() {
           </div>
 
           <div className="flex items-center justify-between mt-10 pt-6 border-t border-border/50">
-            <button
-              onClick={() => setStep("context")}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
+            <button onClick={() => setStep("context")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="w-4 h-4" /> Back
             </button>
             <button
-              onClick={() => {
-                loadAnalytics();
-                setStep("dashboard");
-              }}
+              onClick={() => { loadAnalytics(); setStep("dashboard"); }}
               className="h-10 px-5 rounded-lg bg-foreground text-background text-sm font-medium flex items-center gap-2"
             >
-              Open Dashboard
-              <BarChart3 className="w-4 h-4" />
+              Open Dashboard <BarChart3 className="w-4 h-4" />
             </button>
           </div>
         </div>

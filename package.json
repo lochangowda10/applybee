@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@neondatabase/serverless": "^1.1.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/uuid": "^10.0.0",
     "better-sqlite3": "^13.0.3",

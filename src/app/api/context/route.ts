@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuid } from 'uuid';
-import { getDb } from '@/lib/db';
+import { db } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,29 +11,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Project ID required' }, { status: 400 });
     }
 
-    const db = getDb();
+    const existing = await db<{ id: string }>`SELECT id FROM founder_contexts WHERE project_id = ${projectId}`;
 
-    // Check if context already exists for this project
-    const existing = db.prepare('SELECT id FROM founder_contexts WHERE project_id = ?').get(projectId) as { id: string } | undefined;
-
-    if (existing) {
-      // Update existing
-      db.prepare(`
-        UPDATE founder_contexts
-        SET target_user = ?, alternative = ?, differentiation = ?, desired_action = ?
-        WHERE id = ?
-      `).run(targetUser, alternative, differentiation, desiredAction, existing.id);
+    if (existing.length > 0) {
+      await db`UPDATE founder_contexts SET target_user = ${targetUser || null}, alternative = ${alternative || null}, differentiation = ${differentiation || null}, desired_action = ${desiredAction || null} WHERE id = ${existing[0].id}`;
     } else {
-      // Insert new
-      db.prepare(`
-        INSERT INTO founder_contexts (id, project_id, target_user, alternative, differentiation, desired_action, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-      `).run(uuid(), projectId, targetUser, alternative, differentiation, desiredAction);
+      await db`INSERT INTO founder_contexts (id, project_id, target_user, alternative, differentiation, desired_action, created_at) VALUES (${uuid()}, ${projectId}, ${targetUser || null}, ${alternative || null}, ${differentiation || null}, ${desiredAction || null}, NOW())`;
     }
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    console.error('Context save error:', error);
+    console.error('[CONTEXT] Error:', error);
     const message = error instanceof Error ? error.message : 'Failed to save context';
     return NextResponse.json({ error: message }, { status: 500 });
   }

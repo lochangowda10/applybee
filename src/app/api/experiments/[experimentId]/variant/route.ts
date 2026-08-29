@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { db } from '@/lib/db';
 
 export async function GET(
   request: NextRequest,
@@ -14,20 +14,13 @@ export async function GET(
       return NextResponse.json({ error: 'Variant name required' }, { status: 400 });
     }
 
-    const db = getDb();
+    const variants = await db<{ id: string; name: string; positioning_json: string; landing_content_json: string }>`SELECT id, name, positioning_json, landing_content_json FROM variants WHERE experiment_id = ${experimentId} AND name = ${variantName}`;
 
-    const variant = db.prepare(
-      'SELECT * FROM variants WHERE experiment_id = ? AND name = ?'
-    ).get(experimentId, variantName) as {
-      id: string;
-      name: string;
-      positioning_json: string;
-      landing_content_json: string;
-    } | undefined;
-
-    if (!variant) {
+    if (variants.length === 0) {
       return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
     }
+
+    const variant = variants[0];
 
     return NextResponse.json({
       variant: {
@@ -38,7 +31,7 @@ export async function GET(
       },
     });
   } catch (error: unknown) {
-    console.error('Variant fetch error:', error);
+    console.error('[VARIANT] Error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch variant';
     return NextResponse.json({ error: message }, { status: 500 });
   }

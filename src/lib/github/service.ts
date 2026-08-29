@@ -1,17 +1,54 @@
 /**
- * GitHub Repository Intelligence Service
- * Fetches repo metadata, file tree, and key file contents.
+ * GitHub Repository Intelligence Service (Production-hardened)
+ *
+ * Features:
+ * - Uses defaultBranch from repo metadata (no hardcoded main/master)
+ * - Authenticated requests when GITHUB_TOKEN is set
+ * - Graceful handling of rate limits, 404, private repos
+ * - File size and count limits to prevent prompt explosion
+ * - Ignores generated/noise directories
  */
 
 const GITHUB_API = 'https://api.github.com';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
 
-const headers: Record<string, string> = {
-  Accept: 'application/vnd.github.v3+json',
-  'User-Agent': 'LaunchLoop/1.0',
-};
-if (GITHUB_TOKEN) {
-  headers['Authorization'] = `token ${GITHUB_TOKEN}`;
+function getHeaders(): Record<string, string> {
+  const h: Record<string, string> = {
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'LaunchLoop/1.0',
+  };
+  if (GITHUB_TOKEN) {
+    h['Authorization'] = `token ${GITHUB_TOKEN}`;
+  }
+  return h;
+}
+
+// Directories/files to always ignore
+const IGNORE_PATTERNS = [
+  'node_modules', '.next', 'dist', 'build', 'coverage', 'vendor', 'target',
+  '.git', '.github', '.vscode', '.idea', 'public', '__pycache__',
+  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb',
+  '.DS_Store', 'Thumbs.db',
+];
+
+const BINARY_EXTENSIONS = [
+  '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp',
+  '.woff', '.woff2', '.ttf', '.eot',
+  '.zip', '.tar', '.gz', '.rar', '.7z',
+  '.exe', '.dll', '.so', '.dylib',
+  '.mp3', '.mp4', '.avi', '.mov',
+  '.pdf', '.doc', '.docx',
+  '.sqlite', '.db',
+];
+
+function shouldIgnorePath(path: string): boolean {
+  const parts = path.split('/');
+  // Check if any part matches ignore patterns
+  if (parts.some(p => IGNORE_PATTERNS.includes(p))) return true;
+  // Check binary extensions
+  const ext = '.' + path.split('.').pop()?.toLowerCase();
+  if (BINARY_EXTENSIONS.includes(ext)) return true;
+  return false;
 }
 
 export interface RepoInfo {
@@ -32,7 +69,6 @@ export interface FileNode {
   path: string;
   type: 'file' | 'dir';
   size?: number;
-  children?: FileNode[];
 }
 
 export interface FileContent {
@@ -42,16 +78,42 @@ export interface FileContent {
 }
 
 export function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
-  // Handle both https://github.com/owner/repo and owner/repo formats
   const match = url.match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/|$)/) ||
     url.match(/^([^/]+)\/([^/]+)$/);
   if (!match) return null;
   return { owner: match[1], repo: match[2].replace(/\.git$/, '') };
 }
 
+async function githubFetch(url: string): Promise<Response> {
+  const res = await fetch(url, { headers: getHeaders() });
+
+  if (res.status === 403) {
+    const body = await res.text();
+    if (body.includes('rate limit') || res.headers.get('x-ratelimit-remaining') === '0') {
+      const resetTime = res.headers.get('x-ratelimit-reset');
+      const resetDate = resetTime ? new Date(parseInt(resetTime) * 1000).toLocaleTimeString() : 'later';
+      throw new Error(`GitHub API rate limit reached. Please try again after ${resetDate}.${!GITHUB_TOKEN ? ' Add a GITHUB_TOKEN environment variable for higher limits.' : ''}`);
+    }
+    throw new Error('GitHub API access denied. The repository may be private.');
+  }
+
+  if (res.status === 404) {
+    throw new Error('Repository not found. Make sure the URL is correct and the repository is public.');
+  }
+
+  if (res.status === 451) {
+    throw new Error('Repository is unavailable for legal reasons.');
+  }
+
+  if (!res.ok) {
+    throw new Error(`GitHub API error (${res.status}). Please try again.`);
+  }
+
+  return res;
+}
+
 export async function fetchRepoInfo(owner: string, repo: string): Promise<RepoInfo> {
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, { headers });
-  if (!res.ok) throw new Error(`GitHub repo not found: ${owner}/${repo}`);
+  const res = await githubFetch(`${GITHUB_API}/repos/${owner}/${repo}`);
   const data = await res.json();
 
   return {
@@ -72,26 +134,29 @@ export async function fetchRepoInfo(owner: string, repo: string): Promise<RepoIn
 export async function fetchFileTree(
   owner: string,
   repo: string,
-  branch: string = 'main'
+  branch: string
 ): Promise<FileNode[]> {
-  const res = await fetch(
-    `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
-    { headers }
+  const res = await githubFetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`
   );
-  if (!res.ok) {
-    // Try master branch if main fails
-    if (branch === 'main') {
-      return fetchFileTree(owner, repo, 'master');
-    }
-    throw new Error(`Failed to fetch file tree: ${res.status}`);
-  }
   const data = await res.json();
 
-  const nodes: FileNode[] = data.tree.map((item: { path: string; type: string; size?: number }) => ({
-    path: item.path,
-    type: item.type === 'tree' ? 'dir' as const : 'file' as const,
-    size: item.size,
-  }));
+  if (!data.tree) {
+    throw new Error('Could not fetch repository file tree.');
+  }
+
+  // Filter out ignored paths and large files
+  const nodes: FileNode[] = data.tree
+    .filter((item: { path: string; type: string; size?: number }) => {
+      if (shouldIgnorePath(item.path)) return false;
+      if (item.type === 'blob' && item.size && item.size > 100_000) return false; // Skip files > 100KB
+      return true;
+    })
+    .map((item: { path: string; type: string; size?: number }) => ({
+      path: item.path,
+      type: item.type === 'tree' ? 'dir' as const : 'file' as const,
+      size: item.size,
+    }));
 
   return nodes;
 }
@@ -100,115 +165,96 @@ export async function fetchFileContent(
   owner: string,
   repo: string,
   filePath: string,
-  branch: string = 'main'
+  branch: string
 ): Promise<FileContent | null> {
   try {
     const res = await fetch(
       `${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`,
-      { headers }
+      { headers: getHeaders() }
     );
     if (!res.ok) return null;
     const data = await res.json();
 
     if (data.encoding === 'base64') {
       const content = Buffer.from(data.content, 'base64').toString('utf-8');
-      return { path: filePath, content, size: data.size };
+      return { path: filePath, content: content.slice(0, 8000), size: data.size }; // Cap at 8KB
     }
-    return { path: filePath, content: data.content || '', size: data.size };
+    return { path: filePath, content: (data.content || '').slice(0, 8000), size: data.size };
   } catch {
     return null;
   }
 }
 
-// Key files to look for in a repository
-const KEY_FILES = [
-  'README.md', 'readme.md', 'README', 'readme',
-  'package.json', 'requirements.txt', 'pyproject.toml', 'Cargo.toml', 'go.mod',
-  'setup.py', 'setup.cfg',
-  '.env.example', '.env.sample', '.env.template',
-  'docker-compose.yml', 'docker-compose.yaml', 'Dockerfile',
-  'app.py', 'main.py', 'main.ts', 'main.js', 'index.ts', 'index.js',
-  'server.py', 'server.ts', 'server.js',
-  'app.json', 'vercel.json', 'netlify.toml',
-  'schema.sql', 'schema.ts', 'schema.prisma', 'prisma/schema.prisma',
-  'src/App.tsx', 'src/App.tsx', 'src/app/layout.tsx', 'src/app/page.tsx',
-  'pages/index.tsx', 'pages/_app.tsx',
-  'lib/', 'src/lib/', 'src/components/',
-];
-
 export async function fetchKeyFiles(
   owner: string,
   repo: string,
   fileTree: FileNode[],
-  branch: string = 'main'
+  branch: string
 ): Promise<FileContent[]> {
   const allPaths = new Set(fileTree.filter(f => f.type === 'file').map(f => f.path));
-
-  // Priority files to fetch
   const toFetch: string[] = [];
 
-  // Always try README
+  // Priority 1: README
   for (const name of ['README.md', 'readme.md', 'README', 'readme']) {
-    if (allPaths.has(name) && !toFetch.includes(name)) {
-      toFetch.push(name);
-      break;
+    if (allPaths.has(name)) { toFetch.push(name); break; }
+  }
+
+  // Priority 2: Dependency/config files
+  for (const name of ['package.json', 'requirements.txt', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'setup.py', 'pom.xml', 'build.gradle']) {
+    if (allPaths.has(name)) toFetch.push(name);
+  }
+
+  // Priority 3: Entry points
+  for (const name of ['app.py', 'main.py', 'main.ts', 'main.js', 'index.ts', 'index.js', 'server.py', 'server.ts', 'server.js', 'manage.py', 'App.tsx', 'App.vue']) {
+    if (allPaths.has(name)) toFetch.push(name);
+  }
+
+  // Priority 4: Config files
+  for (const name of ['.env.example', '.env.sample', '.env.template', 'Dockerfile', 'vercel.json', 'netlify.toml', 'docker-compose.yml']) {
+    if (allPaths.has(name)) toFetch.push(name);
+  }
+
+  // Priority 5: Schema files (max 5)
+  let schemaCount = 0;
+  for (const p of allPaths) {
+    if ((p.includes('schema') || p.includes('migration') || p.includes('prisma')) && schemaCount < 5) {
+      toFetch.push(p);
+      schemaCount++;
     }
   }
 
-  // Package/dependency files
-  for (const name of ['package.json', 'requirements.txt', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'setup.py']) {
-    if (allPaths.has(name)) toFetch.push(name);
-  }
-
-  // Entry points
-  for (const name of ['app.py', 'main.py', 'main.ts', 'main.js', 'index.ts', 'index.js', 'server.py', 'server.ts', 'server.js']) {
-    if (allPaths.has(name)) toFetch.push(name);
-  }
-
-  // Config files
-  for (const name of ['.env.example', '.env.sample', 'docker-compose.yml', 'Dockerfile', 'vercel.json']) {
-    if (allPaths.has(name)) toFetch.push(name);
-  }
-
-  // Schema files
-  for (const path of allPaths) {
+  // Priority 6: App routes/pages (max 8)
+  let routeCount = 0;
+  for (const p of allPaths) {
+    if (routeCount >= 8) break;
     if (
-      path.includes('schema') ||
-      path.includes('migration') ||
-      path.includes('prisma')
+      (p.includes('/app/') && p.endsWith('page.tsx')) ||
+      (p.includes('/pages/') && p.endsWith('.tsx')) ||
+      (p.includes('/routes/') && (p.endsWith('.py') || p.endsWith('.ts'))) ||
+      (p.includes('/api/') && (p.endsWith('.ts') || p.endsWith('.py') || p.endsWith('.js')))
     ) {
-      if (toFetch.length < 25) toFetch.push(path);
+      toFetch.push(p);
+      routeCount++;
     }
   }
 
-  // App routes/pages - scan for route patterns
-  for (const path of allPaths) {
-    if (
-      (path.includes('/app/') && path.endsWith('page.tsx')) ||
-      (path.includes('/pages/') && path.endsWith('.tsx')) ||
-      (path.includes('/routes/') && path.endsWith('.py')) ||
-      (path.includes('/api/') && (path.endsWith('.ts') || path.endsWith('.py') || path.endsWith('.js')))
-    ) {
-      if (toFetch.length < 30) toFetch.push(path);
+  // Priority 7: Key components (max 5)
+  let compCount = 0;
+  for (const p of allPaths) {
+    if (compCount >= 5) break;
+    if (p.includes('/components/') && (p.endsWith('.tsx') || p.endsWith('.vue') || p.endsWith('.jsx'))) {
+      toFetch.push(p);
+      compCount++;
     }
   }
 
-  // Components
-  for (const path of allPaths) {
-    if (path.includes('/components/') && (path.endsWith('.tsx') || path.endsWith('.vue'))) {
-      if (toFetch.length < 35) toFetch.push(path);
-    }
-  }
-
-  // Limit total fetches
-  const finalPaths = toFetch.slice(0, 35);
+  // Deduplicate and limit total
+  const uniquePaths = [...new Set(toFetch)].slice(0, 25);
 
   const results: FileContent[] = [];
-  const fetches = finalPaths.map(async (p) => {
+  const fetches = uniquePaths.map(async (p) => {
     const content = await fetchFileContent(owner, repo, p, branch);
-    if (content && content.size < 50000) {
-      results.push(content);
-    }
+    if (content) results.push(content);
   });
   await Promise.all(fetches);
 
@@ -220,9 +266,7 @@ export function getFolderPathStructure(fileTree: FileNode[]): string[] {
   for (const node of fileTree) {
     if (node.type === 'dir') {
       const parts = node.path.split('/');
-      if (parts.length <= 2) {
-        folders.add(node.path);
-      }
+      if (parts.length <= 2) folders.add(node.path);
     }
   }
   return Array.from(folders).sort();
@@ -236,14 +280,17 @@ export interface RepoIntelligence {
 }
 
 export async function gatherRepoIntelligence(owner: string, repo: string): Promise<RepoIntelligence> {
-  const [repoInfo, fileTree] = await Promise.all([
-    fetchRepoInfo(owner, repo),
-    fetchFileTree(owner, repo),
-  ]);
+  // Step 1: Get repo metadata (includes defaultBranch)
+  const repoInfo = await fetchRepoInfo(owner, repo);
 
-  const branch = repoInfo.defaultBranch;
+  // Step 2: Get file tree using the actual default branch
+  const fileTree = await fetchFileTree(owner, repo, repoInfo.defaultBranch);
+
+  // Step 3: Get folder structure
   const folderStructure = getFolderPathStructure(fileTree);
-  const keyFiles = await fetchKeyFiles(owner, repo, fileTree, branch);
+
+  // Step 4: Fetch key files using the same branch
+  const keyFiles = await fetchKeyFiles(owner, repo, fileTree, repoInfo.defaultBranch);
 
   return { repoInfo, fileTree, keyFiles, folderStructure };
 }

@@ -360,8 +360,9 @@ function generateMockAnalysis(intelligence: RepoIntelligence): ProductAnalysis {
 
 function generateMockPositioning(
   analysis: ProductAnalysis,
-  _ctx: Record<string, string | undefined>
+  _context: Record<string, string | undefined>
 ): PositioningHypothesis[] {
+  void _context; // Used in mock mode for context-aware positioning
   return [
     {
       id: 'a',

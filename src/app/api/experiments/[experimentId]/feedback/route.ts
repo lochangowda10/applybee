@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuid } from 'uuid';
-import { getDb } from '@/lib/db';
+import { db } from '@/lib/db';
 
 export async function POST(
   request: NextRequest,
@@ -15,16 +15,16 @@ export async function POST(
       return NextResponse.json({ error: 'variantId and text required' }, { status: 400 });
     }
 
-    const db = getDb();
+    const sanitized = String(text).trim().slice(0, 1000);
+    if (!sanitized) {
+      return NextResponse.json({ error: 'Feedback cannot be empty' }, { status: 400 });
+    }
 
-    db.prepare(`
-      INSERT INTO feedback (id, experiment_id, variant_id, text, created_at)
-      VALUES (?, ?, ?, ?, datetime('now'))
-    `).run(uuid(), experimentId, variantId, text);
+    await db`INSERT INTO feedback (id, experiment_id, variant_id, text, created_at) VALUES (${uuid()}, ${experimentId}, ${variantId}, ${sanitized}, NOW())`;
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    console.error('Feedback error:', error);
+    console.error('[FEEDBACK] Error:', error);
     const message = error instanceof Error ? error.message : 'Failed to save feedback';
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -36,18 +36,12 @@ export async function GET(
 ) {
   try {
     const { experimentId } = await params;
-    const db = getDb();
 
-    const feedback = db.prepare(
-      `SELECT f.*, v.name as variant_name FROM feedback f
-       JOIN variants v ON f.variant_id = v.id
-       WHERE f.experiment_id = ?
-       ORDER BY f.created_at DESC`
-    ).all(experimentId);
+    const feedback = await db`SELECT f.id, f.text, f.created_at, f.variant_id, v.name as variant_name FROM feedback f JOIN variants v ON f.variant_id = v.id WHERE f.experiment_id = ${experimentId} ORDER BY f.created_at DESC`;
 
     return NextResponse.json({ feedback });
   } catch (error: unknown) {
-    console.error('Feedback fetch error:', error);
+    console.error('[FEEDBACK:GET] Error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch feedback';
     return NextResponse.json({ error: message }, { status: 500 });
   }

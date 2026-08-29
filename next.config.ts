@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["better-sqlite3"],
+  // No serverExternalPackages needed — we use Neon HTTP driver
+  // which works in serverless environments without native modules
 };
 
 export default nextConfig;
