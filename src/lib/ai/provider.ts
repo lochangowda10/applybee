@@ -72,16 +72,20 @@ export async function chatCompletion(
     });
   }
 
-  // Build body — start with all params, let the provider reject what it doesn't support
+  const isFireworks = OPENAI_BASE_URL.includes('fireworks');
+
+  // Reasoning-family models (gpt-5*, o1/o3/o4) reject any temperature other
+  // than the default and reject `max_tokens`. Skip the round trip and get it
+  // right on the first attempt rather than relying on the repair loop below.
+  const isFixedTemperatureModel = /^(gpt-5|o[134])/i.test(MODEL);
+
   const body: Record<string, unknown> = {
     model: MODEL,
     messages,
   };
-  if (options.temperature != null) {
+  if (options.temperature != null && !isFixedTemperatureModel) {
     body.temperature = options.temperature;
   }
-  const isFireworks = OPENAI_BASE_URL.includes('fireworks');
-
   // Fireworks uses max_tokens; OpenAI GPT-5 uses max_completion_tokens
   if (isFireworks) {
     body.max_tokens = options.maxTokens ?? 4096;
@@ -95,29 +99,65 @@ export async function chatCompletion(
 
   let response = await makeRequest(body);
 
-  // Retry loop — strip unsupported params one by one on 400 errors
-  // Max 3 retries to avoid infinite loops
-  for (let attempt = 0; attempt < 3 && response.status === 400; attempt++) {
+  /**
+   * Repair loop for rejected parameters.
+   *
+   * Dispatch on the structured `error.param` field rather than substring
+   * matching the prose: OpenAI phrases the same rejection as "is not
+   * supported", "does not support", and "Unsupported value" depending on the
+   * model, and matching on any one of those silently fails for the others.
+   * `param` is stable. The message is only a fallback for providers that
+   * omit it.
+   */
+  const stripped = new Set<string>();
+
+  for (let attempt = 0; attempt < 4 && response.status === 400; attempt++) {
     const errText = await response.text();
 
-    if (errText.includes('temperature') && errText.includes('not supported')) {
+    let param = '';
+    try {
+      param = JSON.parse(errText)?.error?.param ?? '';
+    } catch {
+      // Provider returned non-JSON; fall back to the message text below.
+    }
+
+    const haystack = `${param} ${errText}`.toLowerCase();
+    const mentions = (needle: string) => haystack.includes(needle);
+
+    let repaired = false;
+
+    if ('temperature' in body && mentions('temperature')) {
       delete body.temperature;
-    } else if (errText.includes('max_tokens') && errText.includes('not supported')) {
-      // Switch between max_tokens and max_completion_tokens
-      if ('max_completion_tokens' in body) {
-        delete body.max_completion_tokens;
-        body.max_tokens = options.maxTokens ?? 4096;
-      } else if ('max_tokens' in body) {
-        delete body.max_tokens;
+      stripped.add('temperature');
+      repaired = true;
+    } else if (mentions('max_completion_tokens') && 'max_completion_tokens' in body) {
+      delete body.max_completion_tokens;
+      if (!stripped.has('max_tokens')) body.max_tokens = options.maxTokens ?? 4096;
+      stripped.add('max_completion_tokens');
+      repaired = true;
+    } else if (mentions('max_tokens') && 'max_tokens' in body) {
+      delete body.max_tokens;
+      if (!stripped.has('max_completion_tokens')) {
         body.max_completion_tokens = options.maxTokens ?? 4096;
       }
-    } else if (errText.includes('response_format') || errText.includes('json_object')) {
+      stripped.add('max_tokens');
+      repaired = true;
+    } else if (
+      'response_format' in body &&
+      (mentions('response_format') || mentions('json_object'))
+    ) {
       delete body.response_format;
-    } else {
-      // Unknown 400 error — don't retry
+      stripped.add('response_format');
+      repaired = true;
+    }
+
+    if (!repaired) {
+      // Nothing left to strip, or an error we do not know how to repair.
+      // Retrying an identical body would just burn demo time.
       throw new Error(`AI API error (400): ${errText.slice(0, 300)}`);
     }
 
+    console.warn(`[AI] Provider rejected "${param || 'a parameter'}"; retrying without it.`);
     response = await makeRequest(body);
   }
 
