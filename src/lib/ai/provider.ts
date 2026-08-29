@@ -11,8 +11,28 @@
  */
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
 const MODEL = process.env.AI_MODEL || 'gpt-5-nano';
+
+/**
+ * Normalize the configured base URL to the root the Chat Completions path hangs
+ * off of. People routinely paste a full endpoint into OPENAI_BASE_URL, which
+ * would otherwise concatenate into nonsense like
+ * `/v1/responses/chat/completions` and 404 at request time.
+ *
+ * Strips trailing slashes, an already-appended `/chat/completions`, and
+ * `/responses` (OpenAI's Responses API root — a different protocol from the
+ * Chat Completions one this module speaks).
+ */
+function normalizeBaseUrl(raw: string): string {
+  let url = raw.trim().replace(/\/+$/, '');
+  url = url.replace(/\/chat\/completions$/i, '');
+  url = url.replace(/\/responses$/i, '');
+  return url.replace(/\/+$/, '');
+}
+
+const OPENAI_BASE_URL = normalizeBaseUrl(
+  process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+);
 
 export function isAIConfigured(): boolean {
   return OPENAI_API_KEY.length > 0;
@@ -106,14 +126,38 @@ export async function chatCompletion(
     if (response.status === 429) {
       throw new Error('AI provider rate limit reached. Please try again in a moment.');
     }
-    if (response.status === 401) {
+    if (response.status === 401 || response.status === 403) {
       throw new Error('AI provider authentication failed. Check your OPENAI_API_KEY.');
+    }
+    if (response.status === 404) {
+      throw new Error(
+        `AI endpoint not found at ${OPENAI_BASE_URL}/chat/completions. ` +
+        'Check OPENAI_BASE_URL (it should be the API root, e.g. ' +
+        'https://api.openai.com/v1) and that AI_MODEL is a model this ' +
+        `provider serves (currently "${MODEL}").`
+      );
     }
     throw new Error(`AI API error (${response.status}): ${err.slice(0, 300)}`);
   }
 
-  const data = await response.json();
-  return data.choices[0]?.message?.content || '';
+  // Parse defensively: a proxy or gateway can return a 200 with HTML, and a
+  // non-OpenAI provider can return a 200 with a different envelope. Neither
+  // should surface as an unhandled TypeError.
+  const rawText = await response.text();
+  let data: { choices?: { message?: { content?: string } }[] };
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    throw new Error(
+      `AI provider returned a non-JSON response (${response.status}): ${rawText.slice(0, 200)}`
+    );
+  }
+
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || content.length === 0) {
+    throw new Error('AI provider returned an empty completion.');
+  }
+  return content;
 }
 
 export async function chatJSON<T>(
