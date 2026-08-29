@@ -1,13 +1,10 @@
 import { ensureSchema } from './db-schema';
 
-let _ensured = false;
-
 /**
  * Ensures DB schema is initialized before the first query.
- * Caches so it only runs once per serverless instance.
+ * `ensureSchema` already caches its in-flight promise, so this is safe and
+ * cheap to call at the top of every route.
  */
 export async function initDB(): Promise<void> {
-  if (_ensured) return;
-  await ensureSchema();
-  _ensured = true;
+  return ensureSchema();
 }

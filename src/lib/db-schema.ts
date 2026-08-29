@@ -1,16 +1,16 @@
-import { sqlExec } from './db';
-
-let initialized = false;
+import { sqlQuery, sqlTransaction } from './db';
 
 /**
- * Ensures database tables exist. Runs CREATE TABLE IF NOT EXISTS for each table.
- * Safe to call multiple times — only creates tables if they don't exist.
+ * Cached in-flight promise, not a boolean. Two concurrent requests hitting the
+ * same warm serverless instance would otherwise both start the DDL; running
+ * CREATE TABLE concurrently in Postgres can fail on pg_type's unique index.
+ * Sharing one promise makes schema init happen exactly once per instance.
  */
-export async function ensureSchema(): Promise<void> {
-  if (initialized) return;
+let schemaPromise: Promise<void> | null = null;
 
-  try {
-    await sqlExec`
+function ddl(): unknown[] {
+  return [
+    sqlQuery`
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -18,18 +18,16 @@ export async function ensureSchema(): Promise<void> {
         product_url TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `;
-
-    await sqlExec`
+    `,
+    sqlQuery`
       CREATE TABLE IF NOT EXISTS product_analyses (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL REFERENCES projects(id),
         analysis_json TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `;
-
-    await sqlExec`
+    `,
+    sqlQuery`
       CREATE TABLE IF NOT EXISTS founder_contexts (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL REFERENCES projects(id),
@@ -39,18 +37,16 @@ export async function ensureSchema(): Promise<void> {
         desired_action TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `;
-
-    await sqlExec`
+    `,
+    sqlQuery`
       CREATE TABLE IF NOT EXISTS experiments (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL REFERENCES projects(id),
         status TEXT DEFAULT 'draft',
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `;
-
-    await sqlExec`
+    `,
+    sqlQuery`
       CREATE TABLE IF NOT EXISTS variants (
         id TEXT PRIMARY KEY,
         experiment_id TEXT NOT NULL REFERENCES experiments(id),
@@ -59,9 +55,8 @@ export async function ensureSchema(): Promise<void> {
         landing_content_json TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `;
-
-    await sqlExec`
+    `,
+    sqlQuery`
       CREATE TABLE IF NOT EXISTS analytics_events (
         id TEXT PRIMARY KEY,
         experiment_id TEXT NOT NULL REFERENCES experiments(id),
@@ -71,9 +66,8 @@ export async function ensureSchema(): Promise<void> {
         metadata TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `;
-
-    await sqlExec`
+    `,
+    sqlQuery`
       CREATE TABLE IF NOT EXISTS feedback (
         id TEXT PRIMARY KEY,
         experiment_id TEXT NOT NULL REFERENCES experiments(id),
@@ -81,18 +75,16 @@ export async function ensureSchema(): Promise<void> {
         text TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `;
-
-    await sqlExec`
+    `,
+    sqlQuery`
       CREATE TABLE IF NOT EXISTS experiment_learnings (
         id TEXT PRIMARY KEY,
         experiment_id TEXT NOT NULL REFERENCES experiments(id),
         analysis_json TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `;
-
-    await sqlExec`
+    `,
+    sqlQuery`
       CREATE TABLE IF NOT EXISTS iterations (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL REFERENCES projects(id),
@@ -100,12 +92,33 @@ export async function ensureSchema(): Promise<void> {
         content_json TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `;
+    `,
+    // Indexes on every foreign key the read paths filter by. Without these the
+    // dashboard scans the whole events table on each load.
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_analytics_experiment ON analytics_events (experiment_id)`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_feedback_experiment ON feedback (experiment_id)`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_variants_experiment ON variants (experiment_id)`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_analyses_project ON product_analyses (project_id)`,
+  ];
+}
 
-    initialized = true;
-    console.log('[DB] Schema initialized successfully');
-  } catch (error) {
-    console.error('[DB] Schema initialization failed:', error);
-    throw error;
+/**
+ * Ensures database tables exist. Idempotent, and sent as one transaction so a
+ * cold start costs a single HTTP round trip rather than one per statement.
+ */
+export async function ensureSchema(): Promise<void> {
+  if (!schemaPromise) {
+    schemaPromise = sqlTransaction(ddl())
+      .then(() => {
+        console.log('[DB] Schema ready');
+      })
+      .catch((error) => {
+        // Clear the cache so a later request can retry rather than being stuck
+        // with a permanently rejected promise.
+        schemaPromise = null;
+        console.error('[DB] Schema initialization failed:', error);
+        throw error;
+      });
   }
+  return schemaPromise;
 }
