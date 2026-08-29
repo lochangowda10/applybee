@@ -1,9 +1,12 @@
 /**
  * AI Provider Abstraction Layer (Production-hardened)
  *
- * Supports any OpenAI-compatible API.
- * Falls back to demo/mock mode when no API key is configured.
- * Shows clear DEMO MODE indicator when not using real AI.
+ * Supports any OpenAI-compatible API including:
+ * - OpenAI (max_completion_tokens for GPT-5+)
+ * - Fireworks AI (max_tokens)
+ * - Other compatible providers
+ *
+ * Auto-detects and retries with the correct parameter name.
  */
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
@@ -22,6 +25,11 @@ export function getAIStatus(): { configured: boolean; provider: string; model: s
   };
 }
 
+// Detect if provider is Fireworks (uses max_tokens, not max_completion_tokens)
+function isFireworksProvider(): boolean {
+  return OPENAI_BASE_URL.includes('fireworks');
+}
+
 export async function chatCompletion(
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
   options: { temperature?: number; maxTokens?: number; json?: boolean } = {}
@@ -33,14 +41,24 @@ export async function chatCompletion(
     );
   }
 
-  const body: Record<string, unknown> = {
-    model: MODEL,
-    messages,
-    temperature: options.temperature ?? 0.3,
-    max_completion_tokens: options.maxTokens ?? 4096,
-  };
-  if (options.json) {
-    body.response_format = { type: 'json_object' };
+  const useFireworks = isFireworksProvider();
+
+  function buildBody(useMaxCompletionTokens: boolean): Record<string, unknown> {
+    const b: Record<string, unknown> = {
+      model: MODEL,
+      messages,
+      temperature: options.temperature ?? 0.3,
+    };
+    // Fireworks uses max_tokens; OpenAI GPT-5 uses max_completion_tokens
+    if (useMaxCompletionTokens) {
+      b.max_completion_tokens = options.maxTokens ?? 4096;
+    } else {
+      b.max_tokens = options.maxTokens ?? 4096;
+    }
+    if (options.json) {
+      b.response_format = { type: 'json_object' };
+    }
+    return b;
   }
 
   const fetchOpts = {
@@ -51,23 +69,35 @@ export async function chatCompletion(
     },
   };
 
-  let response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-    ...fetchOpts,
-    body: JSON.stringify(body),
-  });
+  async function makeRequest(body: Record<string, unknown>): Promise<Response> {
+    return fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+      ...fetchOpts,
+      body: JSON.stringify(body),
+    });
+  }
 
-  // If response_format not supported, retry without it
-  if (response.status === 400 && options.json) {
+  // Fireworks: start with max_tokens. Others: start with max_completion_tokens
+  let useMaxCompletionTokens = !useFireworks;
+  let body = buildBody(useMaxCompletionTokens);
+  let response = await makeRequest(body);
+
+  // Auto-detect and retry with correct token param if needed
+  if (response.status === 400) {
     const errText = await response.text();
-    if (errText.includes('response_format') || errText.includes('json_object')) {
+
+    // Check if it's about max_tokens vs max_completion_tokens
+    if (errText.includes('max_tokens') && errText.includes('not supported')) {
+      // Switch parameter name and retry
+      useMaxCompletionTokens = !useMaxCompletionTokens;
+      body = buildBody(useMaxCompletionTokens);
+      response = await makeRequest(body);
+    } else if (errText.includes('response_format') || errText.includes('json_object')) {
+      // response_format not supported, retry without it
       delete body.response_format;
-      response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-        ...fetchOpts,
-        body: JSON.stringify(body),
-      });
+      response = await makeRequest(body);
     } else {
-      // 400 but not about response_format — throw with the error we already read
-      throw new Error(`AI API error (400): ${errText.slice(0, 200)}`);
+      // Some other 400 error
+      throw new Error(`AI API error (400): ${errText.slice(0, 300)}`);
     }
   }
 
@@ -79,7 +109,7 @@ export async function chatCompletion(
     if (response.status === 401) {
       throw new Error('AI provider authentication failed. Check your OPENAI_API_KEY.');
     }
-    throw new Error(`AI API error (${response.status}): ${err.slice(0, 200)}`);
+    throw new Error(`AI API error (${response.status}): ${err.slice(0, 300)}`);
   }
 
   const data = await response.json();
