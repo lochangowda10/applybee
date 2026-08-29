@@ -77,20 +77,40 @@ export async function chatCompletion(
   // Reasoning-family models (gpt-5*, o1/o3/o4) reject any temperature other
   // than the default and reject `max_tokens`. Skip the round trip and get it
   // right on the first attempt rather than relying on the repair loop below.
-  const isFixedTemperatureModel = /^(gpt-5|o[134])/i.test(MODEL);
+  const isReasoningModel = /^(gpt-5|o[134])/i.test(MODEL);
+
+  /**
+   * Reasoning models spend hidden reasoning tokens out of the SAME budget as
+   * visible output. Measured: gpt-5-nano burns ~1100 reasoning tokens on a
+   * 51-token prompt. A caller asking for 2000 tokens of JSON therefore gets an
+   * empty completion, because reasoning consumed the allowance before a single
+   * character of content was emitted.
+   *
+   * So for these models the requested size is treated as the *content* budget
+   * and generous reasoning headroom is added on top.
+   */
+  const requestedTokens = options.maxTokens ?? 4096;
+  const tokenBudget = isReasoningModel
+    ? Math.max(requestedTokens * 4, 8000)
+    : requestedTokens;
 
   const body: Record<string, unknown> = {
     model: MODEL,
     messages,
   };
-  if (options.temperature != null && !isFixedTemperatureModel) {
+  if (options.temperature != null && !isReasoningModel) {
     body.temperature = options.temperature;
+  }
+  // Keep reasoning short — this is extraction and copywriting, not maths, and
+  // every reasoning token is latency the audience watches tick by.
+  if (isReasoningModel) {
+    body.reasoning_effort = 'low';
   }
   // Fireworks uses max_tokens; OpenAI GPT-5 uses max_completion_tokens
   if (isFireworks) {
-    body.max_tokens = options.maxTokens ?? 4096;
+    body.max_tokens = tokenBudget;
   } else {
-    body.max_completion_tokens = options.maxTokens ?? 4096;
+    body.max_completion_tokens = tokenBudget;
   }
   // Only send response_format for providers that support it (not Fireworks)
   if (options.json && !isFireworks) {
@@ -149,6 +169,10 @@ export async function chatCompletion(
       delete body.response_format;
       stripped.add('response_format');
       repaired = true;
+    } else if ('reasoning_effort' in body && mentions('reasoning_effort')) {
+      delete body.reasoning_effort;
+      stripped.add('reasoning_effort');
+      repaired = true;
     }
 
     if (!repaired) {
@@ -184,7 +208,7 @@ export async function chatCompletion(
   // non-OpenAI provider can return a 200 with a different envelope. Neither
   // should surface as an unhandled TypeError.
   const rawText = await response.text();
-  let data: { choices?: { message?: { content?: string } }[] };
+  let data: { choices?: { message?: { content?: string }; finish_reason?: string }[] };
   try {
     data = JSON.parse(rawText);
   } catch {
@@ -193,9 +217,18 @@ export async function chatCompletion(
     );
   }
 
-  const content = data?.choices?.[0]?.message?.content;
+  const choice = data?.choices?.[0];
+  const content = choice?.message?.content;
   if (typeof content !== 'string' || content.length === 0) {
-    throw new Error('AI provider returned an empty completion.');
+    const reason = choice?.finish_reason ?? 'unknown';
+    if (reason === 'length') {
+      throw new Error(
+        `AI ran out of tokens before producing output (finish_reason=length, ` +
+        `budget=${tokenBudget}). The model spent the whole allowance on ` +
+        'reasoning. Raise maxTokens for this call.'
+      );
+    }
+    throw new Error(`AI provider returned an empty completion (finish_reason=${reason}).`);
   }
   return content;
 }
@@ -212,4 +245,33 @@ export async function chatJSON<T>(
   } catch {
     throw new Error('AI returned invalid JSON. Please try again.');
   }
+}
+
+/**
+ * Like `chatJSON`, but for prompts that ask for a top-level JSON array.
+ *
+ * `response_format: {type:'json_object'}` forbids a bare array at the top
+ * level, so a model told to "return a JSON array" complies by wrapping it —
+ * `{"hypotheses":[...]}`, `{"items":[...]}`, and so on, with the key varying
+ * run to run. This unwraps whichever shape comes back rather than letting the
+ * caller crash on a non-iterable.
+ */
+export async function chatJSONArray<T>(
+  messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
+  options: { temperature?: number; maxTokens?: number } = {}
+): Promise<T[]> {
+  const parsed = await chatJSON<unknown>(messages, options);
+
+  if (Array.isArray(parsed)) return parsed as T[];
+
+  if (parsed && typeof parsed === 'object') {
+    // Take the first property whose value is a non-empty array.
+    for (const value of Object.values(parsed as Record<string, unknown>)) {
+      if (Array.isArray(value) && value.length > 0) return value as T[];
+    }
+    // A single object where an array of one was expected.
+    if (Object.keys(parsed as object).length > 0) return [parsed as T];
+  }
+
+  throw new Error('AI returned no usable array. Please try again.');
 }

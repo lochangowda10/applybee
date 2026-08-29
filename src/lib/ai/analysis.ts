@@ -3,7 +3,7 @@
  * Takes GitHub repo intelligence and produces structured product understanding.
  */
 
-import { chatJSON, isAIConfigured } from './provider';
+import { chatJSON, chatJSONArray, isAIConfigured } from './provider';
 import type { RepoIntelligence } from '../github/service';
 
 export interface ProductAnalysis {
@@ -186,13 +186,28 @@ Return a JSON array with exactly 2 positioning hypotheses matching this schema:
   "color_scheme": { "primary": "#hex", "secondary": "#hex", "accent": "#hex" }
 }]`;
 
-  return chatJSON<PositioningHypothesis[]>(
+  const hypotheses = await chatJSONArray<PositioningHypothesis>(
     [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
     { temperature: 0.7, maxTokens: 3000 }
   );
+
+  // The downstream loop and the /e/[experimentId]/[variant] route both assume
+  // exactly two variants keyed 'a' and 'b'. Normalize rather than trust the
+  // model to have honoured "exactly 2 items".
+  const normalized = hypotheses.slice(0, 2).map((h, i) => ({
+    ...h,
+    id: i === 0 ? 'a' : 'b',
+    label: h?.label || (i === 0 ? 'Positioning A' : 'Positioning B'),
+  }));
+
+  if (normalized.length < 2) {
+    throw new Error('AI returned fewer than two positioning hypotheses. Please try again.');
+  }
+
+  return normalized;
 }
 
 export async function generateLandingContent(
