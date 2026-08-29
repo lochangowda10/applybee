@@ -60,13 +60,16 @@ export async function chatCompletion(
   if (options.temperature != null) {
     body.temperature = options.temperature;
   }
+  const isFireworks = OPENAI_BASE_URL.includes('fireworks');
+
   // Fireworks uses max_tokens; OpenAI GPT-5 uses max_completion_tokens
-  if (OPENAI_BASE_URL.includes('fireworks')) {
+  if (isFireworks) {
     body.max_tokens = options.maxTokens ?? 4096;
   } else {
     body.max_completion_tokens = options.maxTokens ?? 4096;
   }
-  if (options.json) {
+  // Only send response_format for providers that support it (not Fireworks)
+  if (options.json && !isFireworks) {
     body.response_format = { type: 'json_object' };
   }
 
