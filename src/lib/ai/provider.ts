@@ -43,12 +43,16 @@ export async function chatCompletion(
     body.response_format = { type: 'json_object' };
   }
 
-  let response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-    method: 'POST',
+  const fetchOpts = {
+    method: 'POST' as const,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${OPENAI_API_KEY}`,
     },
+  };
+
+  let response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+    ...fetchOpts,
     body: JSON.stringify(body),
   });
 
@@ -58,13 +62,12 @@ export async function chatCompletion(
     if (errText.includes('response_format') || errText.includes('json_object')) {
       delete body.response_format;
       response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
+        ...fetchOpts,
         body: JSON.stringify(body),
       });
+    } else {
+      // 400 but not about response_format — throw with the error we already read
+      throw new Error(`AI API error (400): ${errText.slice(0, 200)}`);
     }
   }
 
