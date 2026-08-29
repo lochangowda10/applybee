@@ -8,7 +8,7 @@
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-const MODEL = process.env.AI_MODEL || 'gpt-4o-mini';
+const MODEL = process.env.AI_MODEL || 'gpt-5-nano';
 
 export function isAIConfigured(): boolean {
   return OPENAI_API_KEY.length > 0;
@@ -33,20 +33,40 @@ export async function chatCompletion(
     );
   }
 
-  const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+  const body: Record<string, unknown> = {
+    model: MODEL,
+    messages,
+    temperature: options.temperature ?? 0.3,
+    max_tokens: options.maxTokens ?? 4096,
+  };
+  if (options.json) {
+    body.response_format = { type: 'json_object' };
+  }
+
+  let response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${OPENAI_API_KEY}`,
     },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      temperature: options.temperature ?? 0.3,
-      max_tokens: options.maxTokens ?? 4096,
-      ...(options.json ? { response_format: { type: 'json_object' } } : {}),
-    }),
+    body: JSON.stringify(body),
   });
+
+  // If response_format not supported, retry without it
+  if (response.status === 400 && options.json) {
+    const errText = await response.text();
+    if (errText.includes('response_format') || errText.includes('json_object')) {
+      delete body.response_format;
+      response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(body),
+      });
+    }
+  }
 
   if (!response.ok) {
     const err = await response.text();
