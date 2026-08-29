@@ -7,9 +7,10 @@ export async function POST(
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
+    const body = await request.clone().json();
     await initDB();
+
     const { experimentId } = await params;
-    const body = await request.json();
     const { variantId, text } = body;
 
     if (!variantId || !text) {

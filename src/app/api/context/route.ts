@@ -4,8 +4,9 @@ import { initDB } from '@/lib/init';
 
 export async function POST(request: NextRequest) {
   try {
+    const body = await request.clone().json();
     await initDB();
-    const body = await request.json();
+
     const { projectId, targetUser, alternative, differentiation, desiredAction } = body;
 
     if (!projectId) {

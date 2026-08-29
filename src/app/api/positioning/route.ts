@@ -5,8 +5,9 @@ import { generatePositioning, generateLandingContent } from '@/lib/ai/analysis';
 
 export async function POST(request: NextRequest) {
   try {
+    const body = await request.clone().json();
     await initDB();
-    const body = await request.json();
+
     const { projectId } = body;
 
     if (!projectId) {

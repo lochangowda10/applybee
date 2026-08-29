@@ -6,8 +6,10 @@ import { analyzeRepository } from '@/lib/ai/analysis';
 
 export async function POST(request: NextRequest) {
   try {
+    // Clone request FIRST — Next.js 16 can consume the body stream
+    const body = await request.clone().json();
     await initDB();
-    const body = await request.json();
+
     const { repoUrl, productUrl } = body;
 
     if (!repoUrl && !productUrl) {
