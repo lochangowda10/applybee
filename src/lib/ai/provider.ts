@@ -37,7 +37,7 @@ export async function chatCompletion(
     model: MODEL,
     messages,
     temperature: options.temperature ?? 0.3,
-    max_tokens: options.maxTokens ?? 4096,
+    max_completion_tokens: options.maxTokens ?? 4096,
   };
   if (options.json) {
     body.response_format = { type: 'json_object' };
