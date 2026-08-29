@@ -2,11 +2,12 @@
  * AI Provider Abstraction Layer (Production-hardened)
  *
  * Supports any OpenAI-compatible API including:
- * - OpenAI (max_completion_tokens for GPT-5+)
+ * - OpenAI GPT-5+ (max_completion_tokens, no custom temperature, no response_format)
+ * - OpenAI GPT-4o (max_tokens, custom temperature, response_format)
  * - Fireworks AI (max_tokens)
  * - Other compatible providers
  *
- * Auto-detects and retries with the correct parameter name.
+ * Auto-detects and retries when parameters are unsupported.
  */
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
@@ -25,11 +26,6 @@ export function getAIStatus(): { configured: boolean; provider: string; model: s
   };
 }
 
-// Detect if provider is Fireworks (uses max_tokens, not max_completion_tokens)
-function isFireworksProvider(): boolean {
-  return OPENAI_BASE_URL.includes('fireworks');
-}
-
 export async function chatCompletion(
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
   options: { temperature?: number; maxTokens?: number; json?: boolean } = {}
@@ -39,26 +35,6 @@ export async function chatCompletion(
       'AI not configured. Set OPENAI_API_KEY in your environment variables. ' +
       'The application is running in DEMO MODE with mock responses.'
     );
-  }
-
-  const useFireworks = isFireworksProvider();
-
-  function buildBody(useMaxCompletionTokens: boolean): Record<string, unknown> {
-    const b: Record<string, unknown> = {
-      model: MODEL,
-      messages,
-      temperature: options.temperature ?? 0.3,
-    };
-    // Fireworks uses max_tokens; OpenAI GPT-5 uses max_completion_tokens
-    if (useMaxCompletionTokens) {
-      b.max_completion_tokens = options.maxTokens ?? 4096;
-    } else {
-      b.max_tokens = options.maxTokens ?? 4096;
-    }
-    if (options.json) {
-      b.response_format = { type: 'json_object' };
-    }
-    return b;
   }
 
   const fetchOpts = {
@@ -76,29 +52,50 @@ export async function chatCompletion(
     });
   }
 
-  // Fireworks: start with max_tokens. Others: start with max_completion_tokens
-  let useMaxCompletionTokens = !useFireworks;
-  let body = buildBody(useMaxCompletionTokens);
+  // Build body — start with all params, let the provider reject what it doesn't support
+  const body: Record<string, unknown> = {
+    model: MODEL,
+    messages,
+  };
+  if (options.temperature != null) {
+    body.temperature = options.temperature;
+  }
+  // Fireworks uses max_tokens; OpenAI GPT-5 uses max_completion_tokens
+  if (OPENAI_BASE_URL.includes('fireworks')) {
+    body.max_tokens = options.maxTokens ?? 4096;
+  } else {
+    body.max_completion_tokens = options.maxTokens ?? 4096;
+  }
+  if (options.json) {
+    body.response_format = { type: 'json_object' };
+  }
+
   let response = await makeRequest(body);
 
-  // Auto-detect and retry with correct token param if needed
-  if (response.status === 400) {
+  // Retry loop — strip unsupported params one by one on 400 errors
+  // Max 3 retries to avoid infinite loops
+  for (let attempt = 0; attempt < 3 && response.status === 400; attempt++) {
     const errText = await response.text();
 
-    // Check if it's about max_tokens vs max_completion_tokens
-    if (errText.includes('max_tokens') && errText.includes('not supported')) {
-      // Switch parameter name and retry
-      useMaxCompletionTokens = !useMaxCompletionTokens;
-      body = buildBody(useMaxCompletionTokens);
-      response = await makeRequest(body);
+    if (errText.includes('temperature') && errText.includes('not supported')) {
+      delete body.temperature;
+    } else if (errText.includes('max_tokens') && errText.includes('not supported')) {
+      // Switch between max_tokens and max_completion_tokens
+      if ('max_completion_tokens' in body) {
+        delete body.max_completion_tokens;
+        body.max_tokens = options.maxTokens ?? 4096;
+      } else if ('max_tokens' in body) {
+        delete body.max_tokens;
+        body.max_completion_tokens = options.maxTokens ?? 4096;
+      }
     } else if (errText.includes('response_format') || errText.includes('json_object')) {
-      // response_format not supported, retry without it
       delete body.response_format;
-      response = await makeRequest(body);
     } else {
-      // Some other 400 error
+      // Unknown 400 error — don't retry
       throw new Error(`AI API error (400): ${errText.slice(0, 300)}`);
     }
+
+    response = await makeRequest(body);
   }
 
   if (!response.ok) {
