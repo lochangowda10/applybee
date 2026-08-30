@@ -103,6 +103,21 @@ export async function fetchPageCopy(url: string): Promise<string> {
   }
 }
 
+/**
+ * Models answer "product_name" with a placeholder when the source never named
+ * the product — "Not specified", "Unknown", "N/A". Passing that through means
+ * a project titled "Not specified" in the dashboard, which reads as broken
+ * rather than as missing information.
+ */
+const PLACEHOLDER_NAME =
+  /^(not specified|unspecified|unknown|n\/?a|none|untitled|product|your product)\.?$/i;
+
+export function cleanProductName(name: unknown, fallback: string): string {
+  const value = typeof name === 'string' ? name.trim() : '';
+  if (!value || PLACEHOLDER_NAME.test(value)) return fallback;
+  return value.slice(0, 80);
+}
+
 const SCHEMA = `{
   "product_name": "string",
   "summary": "string - 2-3 sentences on what this product does",
@@ -142,7 +157,7 @@ export async function analyzeProductUrl(url: string): Promise<ProductAnalysis> {
   }
 
   try {
-    return await chatJSON<ProductAnalysis>(
+    const result = await chatJSON<ProductAnalysis>(
       [
         {
           role: 'system',
@@ -158,6 +173,7 @@ export async function analyzeProductUrl(url: string): Promise<ProductAnalysis> {
       ],
       { temperature: 0.2, maxTokens: 2000 }
     );
+    return { ...result, product_name: cleanProductName(result.product_name, hostname) };
   } catch (error) {
     console.error('[INPUT] Product URL analysis failed, using fallback:', error);
     return fallbackAnalysis(hostname, copy);
@@ -170,7 +186,7 @@ export async function analyzeDescription(text: string): Promise<ProductAnalysis>
     return fallbackAnalysis('Your product', text);
   }
   try {
-    return await chatJSON<ProductAnalysis>(
+    const result = await chatJSON<ProductAnalysis>(
       [
         {
           role: 'system',
@@ -186,6 +202,12 @@ export async function analyzeDescription(text: string): Promise<ProductAnalysis>
       ],
       { temperature: 0.3, maxTokens: 2000 }
     );
+    // Nothing named the product, so derive a readable label from the text.
+    const derived = text.trim().split(/\s+/).slice(0, 4).join(' ');
+    return {
+      ...result,
+      product_name: cleanProductName(result.product_name, derived || 'Your product'),
+    };
   } catch (error) {
     console.error('[INPUT] Description analysis failed, using fallback:', error);
     return fallbackAnalysis('Your product', text);

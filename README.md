@@ -55,18 +55,27 @@ sentence is less evidence than a codebase, and the analysis says so.
 
 ## It actually works — measured, not claimed
 
-Four different inputs, run end to end with no human intervention. Reproduce with `node scripts/e2e.mjs`; raw output in [`scripts/e2e-results.txt`](scripts/e2e-results.txt).
+Six inputs across all three types, run end to end with no human intervention,
+against a production build. Reproduce with `node scripts/e2e.mjs`; raw output
+in [`scripts/e2e-results.txt`](scripts/e2e-results.txt).
 
-| Input | Analyze | Positioning + deploy | V3 proposal | Total |
-|---|---|---|---|---|
-| `hanamaraddi9620adi/swinglens` | 11.1s | 34.7s | 17.2s | 66s |
-| `sindresorhus/got` | 9.9s | 25.1s | 10.5s | 49s |
-| `expressjs/express` | 7.4s | 23.1s | 11.3s | 44s |
-| `vercel.com` (product URL) | 0.5s | 29.9s | 7.8s | 42s |
+| Input | Type | Analyze | Positioning + deploy | V3 | Total |
+|---|---|---|---|---|---|
+| `hanamaraddi9620adi/swinglens` | repo | 8.8s | 24.0s | 7.8s | 43s |
+| `sindresorhus/got` | repo | 7.1s | 23.1s | 8.7s | 41s |
+| `expressjs/express` | repo | 6.3s | 20.0s | 8.5s | 37s |
+| `https://vercel.com` | product URL | 6.9s | 22.7s | 8.7s | 41s |
+| `linear.app` | bare domain | 5.3s | 23.4s | 8.6s | 40s |
+| *"a tool that finds which flaky test costs the most hours"* | description | 7.3s | 18.5s | 8.0s | 36s |
 
-**4/4 complete (100%)**, each producing two live variant pages, recorded visitor events, and a V3 proposal.
+**6/6 complete (100%)**, each producing two live variant pages, recorded
+visitor events, a V3 proposal, and a successful cold-start resume.
 
-The first run of this harness scored 3/4 and caught two real bugs — a response envelope that collapsed two hypotheses into one, and an unwrap that could silently return a hypothesis's `benefits` list *as* the hypotheses. Both are fixed; the harness is why they were found.
+Earlier runs of this harness are why several bugs exist as fixes rather than as
+live failures: it scored 3/4 the first time and caught a response envelope that
+collapsed two hypotheses into one, plus an unwrap that could silently return a
+hypothesis's `benefits` list *as* the hypotheses. A later run exposed that the
+product-URL and plain-description inputs were not really implemented at all.
 
 ### A real recorded run
 
