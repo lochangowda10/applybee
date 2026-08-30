@@ -119,9 +119,18 @@ Per-experiment credits — you pay when you learn something, not for an idle sea
 
 | | Price | |
 |---|---|---|
-| **First one free** | $0 | 1 experiment, nothing withheld |
+| **Free** | $0 | 1 experiment a week, up to 4 a month |
+| **Free, on the waitlist** | $0 | 8 a month, no weekly gate |
 | **Starter** | $19 | 10 experiments · $1.90 each |
 | **Growth** | $79 | 50 experiments · $1.58 each |
+
+The free tier is **enforced, not advertised**: `/api/analyze` refuses a
+seventh project the same way it refuses a bad repo URL. The allowance is
+counted per caller against an HMAC of their address — the address itself is
+never stored — and a blocked caller gets a 429 that names the limit, says
+when it resets, and offers the waitlist when joining would actually lift it.
+See `src/lib/quota.ts`; it is a different mechanism from the abuse limiter in
+`src/lib/rate-limit.ts`, and unlike that one it fails closed.
 
 **Unit economics, measured:** one complete experiment is **10,467 tokens across 5 model calls**. At nano-tier rates that is a fraction of a cent against a $1.58–$1.90 price — gross margin above 99%. Acquisition is structural rather than paid: every generated page footer links back with referral attribution, so a shared experiment is a distribution surface.
 
@@ -155,7 +164,11 @@ npm run dev
 | `AI_MODEL` | No | Default `gpt-5-nano` |
 | `AI_TIMEOUT_MS` | No | Per-call ceiling, default `20000` |
 | `GITHUB_TOKEN` | No | Raises GitHub's limit from 60/hr to 5,000/hr |
-| `OWNER_SECRET` | No | Signs the project-ownership cookie. Unset = every project stays unclaimed |
+| `OWNER_SECRET` | No | Signs the project-ownership and waitlist cookies. Unset = every project stays unclaimed and nobody can be signed up |
+| `QUOTA_FREE_WEEK` | No | Free experiments per week for an anonymous caller, default `1` |
+| `QUOTA_FREE_MONTH` | No | Monthly ceiling for an anonymous caller, default `4` |
+| `QUOTA_SIGNED_MONTH` | No | Monthly allowance once someone joins the waitlist, default `8` |
+| `QUOTA_DISABLED` | No | Set to `1` to lift the free tier entirely. Exists because a venue puts a whole room behind one address |
 
 Without `OPENAI_API_KEY` the app runs on deterministic generated content rather than failing.
 

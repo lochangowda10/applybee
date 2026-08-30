@@ -12,6 +12,7 @@ import {
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
 import { ensureOwnerId } from '@/lib/owner';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
+import { checkQuota, quotaResponse, ipKey } from '@/lib/quota';
 
 type RepoInfo = Awaited<ReturnType<typeof gatherRepoIntelligence>>['repoInfo'];
 
@@ -30,6 +31,20 @@ export async function POST(request: NextRequest) {
     // of judges sharing one venue NAT never trips it.
     const rl = await rateLimit(`analyze:${clientIp(request)}`, 30, 3600);
     if (rl.limited) return rl.response;
+
+    /**
+     * The free tier, checked before anything is created or spent.
+     *
+     * Distinct from the limiter above: that one bounds how fast a caller may
+     * ask, this one bounds how much they get for free. It is the rule the
+     * pricing page states, so it is enforced here rather than described.
+     */
+    const quota = await checkQuota(request);
+    if (quota.blocked) return quotaResponse(quota);
+
+    // Stamped onto whichever project row this request creates, so the next
+    // request can count it. Computed once; the address itself is never stored.
+    const creatorKey = ipKey(request);
 
     // Accept the three declared inputs under any of the field names the client
     // has used, then classify rather than trusting which field it arrived in —
@@ -93,7 +108,7 @@ export async function POST(request: NextRequest) {
       name = parsed.repo;
       repoUrlValue = raw;
 
-      await db`INSERT INTO projects (id, name, repo_url, owner_id, created_at) VALUES (${projectId}, ${name}, ${repoUrlValue}, ${ownerId}, NOW())`;
+      await db`INSERT INTO projects (id, name, repo_url, owner_id, creator_ip_hash, created_at) VALUES (${projectId}, ${name}, ${repoUrlValue}, ${ownerId}, ${creatorKey}, NOW())`;
       await recordReferral();
 
       const intelligence = await gatherRepoIntelligence(parsed.owner, parsed.repo);
@@ -123,7 +138,7 @@ export async function POST(request: NextRequest) {
       name = new URL(absolute).hostname.replace(/^www\./, '');
       productUrlValue = absolute;
 
-      await db`INSERT INTO projects (id, name, product_url, owner_id, created_at) VALUES (${projectId}, ${name}, ${productUrlValue}, ${ownerId}, NOW())`;
+      await db`INSERT INTO projects (id, name, product_url, owner_id, creator_ip_hash, created_at) VALUES (${projectId}, ${name}, ${productUrlValue}, ${ownerId}, ${creatorKey}, NOW())`;
       await recordReferral();
 
       analysis = await analyzeProductUrl(absolute);
@@ -137,7 +152,7 @@ export async function POST(request: NextRequest) {
       analysis = await analyzeDescription(raw);
       name = analysis.product_name || 'Your product';
 
-      await db`INSERT INTO projects (id, name, owner_id, created_at) VALUES (${projectId}, ${name}, ${ownerId}, NOW())`;
+      await db`INSERT INTO projects (id, name, owner_id, creator_ip_hash, created_at) VALUES (${projectId}, ${name}, ${ownerId}, ${creatorKey}, NOW())`;
       await recordReferral();
     }
 

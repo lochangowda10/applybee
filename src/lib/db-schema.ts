@@ -142,6 +142,15 @@ function ddl(): unknown[] {
      */
     sqlQuery`ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id TEXT`,
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects (owner_id)`,
+    /**
+     * Who started this project, for the free-tier ledger in lib/quota.ts.
+     * An HMAC of the caller's address rather than the address itself: the
+     * product needs to count, not to keep a record of who visited from where.
+     * Nullable, so every project that predates the free tier is simply
+     * invisible to it rather than retroactively charged against someone.
+     */
+    sqlQuery`ALTER TABLE projects ADD COLUMN IF NOT EXISTS creator_ip_hash TEXT`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_projects_creator ON projects (creator_ip_hash, created_at)`,
     // Indexes on every foreign key the read paths filter by. Without these the
     // dashboard scans the whole events table on each load.
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_analytics_experiment ON analytics_events (experiment_id)`,

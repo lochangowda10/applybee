@@ -42,11 +42,32 @@ const RULES: { match: RegExp; result: FriendlyError }[] = [
     },
   },
   {
-    match: /rate limit|429|exceeded your quota/i,
+    /**
+     * Our own limiter says "Too many requests", which matched none of the
+     * words below and so fell through to "Something went wrong on our side."
+     * — telling the user we broke when in fact they went too fast. The
+     * product's own wording has to be in this pattern, not just the generic
+     * vocabulary of other people's APIs.
+     */
+    match: /too many requests|rate limit|429|exceeded your quota/i,
     result: {
       message: "We are being rate limited right now.",
       action: "Wait about a minute, then try again.",
       retryable: true,
+    },
+  },
+  {
+    /**
+     * Running out of free experiments is not an error and must never be
+     * dressed as one. The server already wrote a sentence that says what
+     * happened and what to do; this rule exists so it survives instead of
+     * being replaced by an apology and a pointless retry button.
+     */
+    match: /free experiment|experiments this month|unlocks in seven days/i,
+    result: {
+      message: "That is your free allowance for now.",
+      action: "Join the waitlist further down the page to raise it, or wait for it to reset.",
+      retryable: false,
     },
   },
   {

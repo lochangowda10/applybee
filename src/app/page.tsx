@@ -72,7 +72,29 @@ export default function Home() {
 
       // Parse defensively: a 500 or a gateway error returns HTML, and calling
       // .json() on that throws a parser error that means nothing to a user.
-      const data = await safeJson<{ projectId?: string; error?: string }>(res);
+      const data = await safeJson<{
+        projectId?: string;
+        error?: string;
+        quota?: { signupWouldHelp?: boolean; scope?: string };
+      }>(res);
+
+      /**
+       * Running out of free experiments is not a failure, so it does not get
+       * the failure treatment. humanizeError would offer a retry, and retrying
+       * is the one thing that cannot work here — the answer is either to wait
+       * or to join the waitlist.
+       */
+      if (res.status === 429 && data.quota) {
+        setError({
+          message: data.error || "You have used your free experiments.",
+          action: data.quota.signupWouldHelp
+            ? "Join the waitlist further down this page — it lifts the limit straight away."
+            : "Your allowance refills on its own. Nothing to do.",
+          retryable: false,
+        });
+        return;
+      }
+
       if (!res.ok || !data.projectId) {
         throw new Error(data.error || `Analysis failed (${res.status})`);
       }
@@ -304,14 +326,14 @@ export default function Home() {
             <div className="grid gap-5 md:grid-cols-3">
               {[
                 {
-                  name: "First one free",
+                  name: "Free",
                   price: "$0",
-                  unit: "1 experiment",
-                  per: "no card required",
+                  unit: "1 experiment a week",
+                  per: "4 a month — 8 on the waitlist",
                   points: [
                     "Full loop, nothing withheld",
                     "Two live variant URLs + QR codes",
-                    "The proposed rewrite",
+                    "No card, no account",
                   ],
                   featured: false,
                 },

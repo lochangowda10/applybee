@@ -87,6 +87,14 @@ export function PurchaseIntent() {
             live. Nothing is charged now, and this is recorded as intent — not
             as revenue.
           </p>
+          {/* The quota refusal tells people to "join the waitlist" and points
+              them here, so this form has to say plainly that it is that
+              thing — otherwise the offer sends them somewhere they do not
+              recognise. */}
+          <p className="mt-2 max-w-md text-xs leading-relaxed text-muted-foreground">
+            It also lifts the free tier straight away: 8 experiments a month
+            instead of one a week.
+          </p>
         </div>
 
         {summary && (

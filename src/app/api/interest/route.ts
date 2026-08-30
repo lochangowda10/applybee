@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
+import { setSignedUp, quotaLimits } from '@/lib/quota';
 
 /**
  * Recorded willingness to pay.
@@ -60,7 +61,20 @@ export async function POST(request: NextRequest) {
     `;
 
     const rows = await db<{ count: string }>`SELECT COUNT(*) as count FROM purchase_intents`;
-    return NextResponse.json({ recorded: true, total: Number(rows[0]?.count ?? 0) });
+
+    /**
+     * Joining the waitlist is what lifts the weekly gate on the free tier, so
+     * the cookie is set here rather than on a separate confirmation step. A
+     * gate that stays shut after someone does the thing it asked for would
+     * teach them the offer was not real.
+     */
+    const response = NextResponse.json({
+      recorded: true,
+      total: Number(rows[0]?.count ?? 0),
+      experimentsPerMonth: quotaLimits().signedMonth,
+    });
+    setSignedUp(response, email);
+    return response;
   } catch (error: unknown) {
     return apiError('INTEREST', error);
   }
