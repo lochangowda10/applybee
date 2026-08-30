@@ -195,6 +195,7 @@ src/
 │   ├── api.ts                        # body parsing, validation, safe errors
 │   ├── errors.ts                     # raw failures → human sentences
 │   ├── db.ts                         # Neon Postgres over HTTP
+│   ├── rate-limit.ts                 # fixed-window limiter, fail-open by design
 │   └── db-schema.ts                  # schema init, one transaction
 ├── components/
 │   ├── progress-status.tsx           # honest progress + error presentation
@@ -249,13 +250,15 @@ work over a missing variable.
 
 **Input is classified server-side, not guessed by the client.** The page sends what was typed; the server decides whether it is a repo, a URL, or prose. Guessing in the browser is what previously routed a typed paragraph into the URL field, where it reached `new URL()` and threw a 500.
 
+**Rate limiting runs on the database the product already has.** In-memory counters limit nothing on serverless — each instance gets its own — and a second store (Redis) is one more service to provision and trust. The limiter is a fixed-window upsert in Neon: one statement per check, keyed per endpoint and per IP or session, with ceilings set far above human speed so a room of judges on one venue NAT never trips them. It fails open on purpose: rate limiting is a cost control, not an authorization boundary, and a cost control must never be the reason the product is down. The event endpoint carries two buckets rather than one, because its natural key — the visitor's session id — arrives from the client: a limiter keyed only on attacker-controlled input bounds nothing, so a per-IP ceiling sits behind the per-session one.
+
 ---
 
 ## Honest limitations
 
 - Sample sizes in a hackathon setting are small. The product says so on every screen rather than implying significance it hasn't earned.
 - Ownership is anonymous and browser-scoped, not account authentication. A project is claimed by whoever created it via a signed httpOnly cookie, and founder-side writes — saving answers, deploying pages, approving V3 — are refused to anyone else. But it is one browser, not an account: clear the cookie and you lose the claim, and there is no way to sign in from a second device. Reading stays deliberately open, since these links are meant to be shared.
-- Visitor events are validated but not rate limited, so the counts assume good faith. Fine for a demo; not for production.
+- Rate limiting is per IP, and per IP is not per person. It stops the realistic abuse — one script in a loop farming AI calls or inflating a count — and it does not stop a distributed one rotating addresses. There is no CAPTCHA on the signup or feedback forms yet, so the willingness-to-pay number is protected by a rate limit and a uniqueness constraint, not by proof of a human. Both are the next thing to add, in that order.
 - V3 is proposed, never auto-deployed — deliberate, but it does mean the loop needs one human step to close.
 - Recorded willingness to pay is intent, not revenue. Nobody has been charged and there is no checkout; the count says so wherever it appears.
 
