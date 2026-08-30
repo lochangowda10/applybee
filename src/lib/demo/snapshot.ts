@@ -376,3 +376,48 @@ export const DEMO_LEARNING = {
   "recommended_changes": "1) Clarify core value on day one: present concrete, step-by-step outcomes (e.g., 'Identify swing pivots, generate entry/exit plan, 1-click backtest-ready signals'). 2) Define terms plainly: explain what 'explainable confidence score' means with a simple example; avoid broker/trading platform ambiguity. 3) Reduce architectural jargon and emphasize practical use-cases over structure. 4) Highlight offline/low-bandwidth benefits with concrete scenarios (e.g., when wifi is unreliable). 5) Consider a combined positioning variant that foregrounds outcome/results and offline reliability, with a tiny snippet showing a sample plan and a simple score interpretation. 6) Add onboarding copy or a hero section showing what you get today (day one) vs. roadmap features to reduce perceived risk.",
   "next_hypothesis": "A revised hybrid positioning that foregrounds concrete trading outcomes and offline reliability (e.g., 'SwingLens gives you actionable swing plans that work offline with a simple explainable score'), along with a clarified definition of the score and day-one deliverables, will improve clarity and conversions. Test a new variant that (a) defines day-one value, (b) explains the score with a concrete example, and (c) minimizes architectural jargon. If feasible, run a small split test pairing this messaging with a short, visual demo showing a real-world swing setup and outcome feedback."
 } as const;
+
+/**
+ * The V3 proposal generated from the seeded run above.
+ *
+ * Frozen from a real call against this experiment, so /demo can show the
+ * step the whole product turns on without spending a model call — or
+ * needing the network — on every visit. The change list is what the
+ * product computed by comparing the stored strings, not a description the
+ * model wrote about its own edits.
+ */
+export const DEMO_V3 = {
+  "basedOnVariant": "a",
+  "sampleFeedbackCount": 8,
+  "summary": "This revision emphasizes concrete day-one outcomes and a clear explainable score, while retaining offline, local-first advantages and avoiding architectural jargon to improve clarity and perceived value.",
+  "changes": [
+    {
+      "field": "headline",
+      "label": "Headline",
+      "before": "Trade smarter, offline and with confidence: swing analysis that sticks with you between sessions",
+      "after": "Trade smarter offline: actionable swing plans you can trust across sessions",
+      "reason": "Changed to foreground offline capability and tangible swing outcomes based on visitors' emphasis on offline reliability and real trading support (early feedback favored offline and explainable scoring but noted need for concrete day-one outcomes)."
+    },
+    {
+      "field": "subheadline",
+      "label": "Subheadline",
+      "before": "Local-first chart analytics + explainable entry/exit plans—without sacrificing speed or insight",
+      "after": "Local-first chart analytics + concrete day-one outcomes and an explainable score—without sacrificing speed",
+      "reason": "Incorporates day-one outcomes and a simple explainable score to address confusion about what is delivered immediately, per visitor notes about day-one value and score clarity."
+    },
+    {
+      "field": "main_promise",
+      "label": "Main promise",
+      "before": "Deliver an end-to-end, offline swing-trading workflow that produces repeatable, explainable plans and keeps all setups and results locally",
+      "after": "Deliver an end-to-end, offline swing-trading workflow that yields concrete day-one results: identify swing pivots, generate entry/exit plans, and present a simple explainable score—all kept locally",
+      "reason": "Explicitly states day-one deliverables (pivots, plans, explainable score) to fix feedback about unclear day-one value and outcomes."
+    },
+    {
+      "field": "primary_pain",
+      "label": "Primary pain",
+      "before": "Dependency on cloud-only tools, fragmented workflows, and opaque trade plans that are hard to reproduce across sessions",
+      "after": "Dependency on cloud-only tools, fragmented workflows, and opaque trade plans that are hard to reproduce across sessions; confusion about what you get on day one and what the explainable score means",
+      "reason": "Adds clarity about day-one value and explains the score to counter confusion and ambiguity from feedback; retains offline/reproducible themes."
+    }
+  ]
+} as const;

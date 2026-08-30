@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { ensureDemoSeed, DEMO_EXPERIMENT_ID } from "@/lib/demo/seed";
-import { DEMO_SNAPSHOT, DEMO_LEARNING } from "@/lib/demo/snapshot";
+import { DEMO_SNAPSHOT, DEMO_LEARNING, DEMO_V3 } from "@/lib/demo/snapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -369,9 +369,55 @@ export default async function DemoPage() {
             </div>
           </div>
 
+          {/*
+            The diff a founder actually approves. Shown here so the closing
+            step of the loop is visible without running an experiment — it is
+            the step that separates this from a page generator, and describing
+            it in prose would have been the weaker choice.
+          */}
+          <div className="mt-8">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <p className="font-mono text-[11px] uppercase tracking-widest text-neutral-500">
+                What V3 changes — {DEMO_V3.changes.length} fields
+              </p>
+              <p className="font-mono text-[11px] text-neutral-600">
+                from variant {DEMO_V3.basedOnVariant.toUpperCase()} · grounded in{" "}
+                {DEMO_V3.sampleFeedbackCount} written responses
+              </p>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {DEMO_V3.changes.map((c) => (
+                <div
+                  key={c.field}
+                  className="overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950"
+                >
+                  <div className="border-b border-neutral-800 bg-neutral-900/50 px-4 py-2">
+                    <span className="font-mono text-[11px] uppercase tracking-widest text-neutral-400">
+                      {c.label}
+                    </span>
+                  </div>
+                  <div className="space-y-2 p-4">
+                    <p className="text-pretty text-sm leading-relaxed text-neutral-500 line-through decoration-red-500/40">
+                      {c.before}
+                    </p>
+                    <p className="text-pretty text-sm leading-relaxed text-neutral-100">
+                      {c.after}
+                    </p>
+                    <p className="border-t border-neutral-800/80 pt-2 text-pretty text-xs leading-relaxed text-neutral-500">
+                      <span className="text-neutral-400">Why: </span>
+                      {c.reason}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <p className="mt-6 max-w-2xl text-pretty text-sm leading-relaxed text-neutral-500">
             LaunchLoop never redeploys on its own. V3 stays a proposal until a
-            human approves it.
+            human approves it — and approving it ships V3 against the version
+            it beat, so the comparison continues instead of ending on a guess.
           </p>
         </section>
 

@@ -202,8 +202,17 @@ export async function analyzeDescription(text: string): Promise<ProductAnalysis>
       ],
       { temperature: 0.3, maxTokens: 2000 }
     );
-    // Nothing named the product, so derive a readable label from the text.
-    const derived = text.trim().split(/\s+/).slice(0, 4).join(' ');
+    /**
+     * When the description never named the product, the first few words are
+     * usually a sentence opening rather than a name — "A tool that watches"
+     * is a truncation, and a dashboard headed with it reads as broken. Only
+     * keep a derived label when it plausibly is one; otherwise say plainly
+     * that the source did not name the product.
+     */
+    const opening = text.trim().split(/\s+/).slice(0, 4).join(' ');
+    const looksLikeSentence = /^(a|an|the|it|this|we|i|my|our)\b/i.test(opening);
+    const derived = looksLikeSentence ? '' : opening;
+
     return {
       ...result,
       product_name: cleanProductName(result.product_name, derived || 'Your product'),

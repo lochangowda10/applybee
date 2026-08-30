@@ -68,20 +68,31 @@ sentence is less evidence than a codebase, and the analysis says so.
 ## It actually works — measured, not claimed
 
 Six inputs across all three types, run end to end with no human intervention,
-against a production build. Reproduce with `node scripts/e2e.mjs`; raw output
-in [`scripts/e2e-results.txt`](scripts/e2e-results.txt).
+against a production build. Every case runs the **entire loop**: analyze,
+generate two positions, deploy both, record a visitor and a written response,
+read the results, propose V3 as a diff, approve it, and deploy the next
+experiment. Reproduce with `node scripts/e2e.mjs`; raw output in
+[`scripts/e2e-results.txt`](scripts/e2e-results.txt).
 
-| Input | Type | Analyze | Positioning + deploy | V3 | Total |
-|---|---|---|---|---|---|
-| `hanamaraddi9620adi/swinglens` | repo | 8.8s | 24.0s | 7.8s | 43s |
-| `sindresorhus/got` | repo | 7.1s | 23.1s | 8.7s | 41s |
-| `expressjs/express` | repo | 6.3s | 20.0s | 8.5s | 37s |
-| `https://vercel.com` | product URL | 6.9s | 22.7s | 8.7s | 41s |
-| `linear.app` | bare domain | 5.3s | 23.4s | 8.6s | 40s |
-| *"a tool that finds which flaky test costs the most hours"* | description | 7.3s | 18.5s | 8.0s | 36s |
+| Input | Type | Analyze | Position + deploy | Results | V3 diff | Approve + ship | Total |
+|---|---|---|---|---|---|---|---|
+| `hanamaraddi9620adi/swinglens` | repo | 9.7s | 25.4s | 9.3s | 8.0s · 5 changes | 19.1s | 75s |
+| `sindresorhus/got` | repo | 8.7s | 22.2s | 7.8s | 7.9s · 6 changes | 22.6s | 73s |
+| `expressjs/express` | repo | 7.0s | 27.4s | 8.7s | 7.0s · 1 change | 19.4s | 74s |
+| `https://vercel.com` | product URL | 8.9s | 26.9s | 10.4s | 9.1s · 5 changes | 18.1s | 77s |
+| `linear.app` | bare domain | 6.6s | 24.4s | 8.6s | 9.7s · 6 changes | 21.2s | 75s |
+| *"a tool that finds which flaky test costs the most hours"* | description | 3.7s | 24.0s | 10.5s | 7.4s · 3 changes | 16.9s | 66s |
 
 **6/6 complete (100%)**, each producing two live variant pages, recorded
-visitor events, a V3 proposal, and a successful cold-start resume.
+visitor events, a reviewable V3 diff, a second deployed experiment, and a
+successful cold-start resume.
+
+The change counts differ per case because the diff is computed, not scripted —
+Express produced one changed field, `got` and Linear produced six. Each case
+also asserts the things that could silently rot: that proposing never returns
+as approved, that no listed change has `before === after`, that approval
+creates a *different* experiment, and that a second browser attempting to
+deploy someone else's pages is refused with a 403.
 
 Earlier runs of this harness are why several bugs exist as fixes rather than as
 live failures: it scored 3/4 the first time and caught a response envelope that
