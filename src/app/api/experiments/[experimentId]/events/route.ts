@@ -1,34 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
+import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
+
+/** Only the events the product actually records; anything else is rejected. */
+const EVENT_TYPES = new Set(['page_view', 'cta_click']);
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
-    const body = await request.clone().json();
+    const body = await readJsonBody<Record<string, unknown>>(request);
     await initDB();
 
     const { experimentId } = await params;
-    const { variantId, eventType, sessionId, metadata } = body;
+    const variantId = readString(body.variantId, 'variantId', { max: 100 });
+    const eventType = readString(body.eventType, 'eventType', { max: 40 });
+    const sessionId = readString(body.sessionId, 'sessionId', { required: false, max: 100 });
+    const metadata = readString(body.metadata, 'metadata', { required: false, max: 2000 });
 
-    if (!variantId || !eventType) {
-      return NextResponse.json({ error: 'variantId and eventType required' }, { status: 400 });
+    if (!EVENT_TYPES.has(eventType)) {
+      throw new ApiError(`Unknown event type "${eventType}".`, 400);
     }
 
-    const experiment = await db<{ id: string }>`SELECT id FROM experiments WHERE id = ${experimentId}`;
-    if (experiment.length === 0) {
-      return NextResponse.json({ error: 'Experiment not found' }, { status: 404 });
+    // The variant must belong to this experiment. Without this check a caller
+    // could attach events to another experiment's variant and quietly corrupt
+    // the numbers a founder is about to draw conclusions from.
+    const variant = await db<{ id: string }>`
+      SELECT id FROM variants WHERE id = ${variantId} AND experiment_id = ${experimentId}
+    `;
+    if (variant.length === 0) {
+      throw new ApiError('That variant does not belong to this experiment.', 404);
     }
 
     await db`INSERT INTO analytics_events (id, experiment_id, variant_id, event_type, session_id, metadata, created_at) VALUES (${crypto.randomUUID()}, ${experimentId}, ${variantId}, ${eventType}, ${sessionId || null}, ${metadata || null}, NOW())`;
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    console.error('[EVENTS] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to track event';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('EVENTS', error);
   }
 }
 
@@ -64,8 +74,6 @@ export async function GET(
 
     return NextResponse.json({ analytics });
   } catch (error: unknown) {
-    console.error('[EVENTS:GET] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to fetch analytics';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('EVENTS:GET', error);
   }
 }

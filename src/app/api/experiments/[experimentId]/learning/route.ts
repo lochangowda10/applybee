@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { analyzeExperimentResults } from '@/lib/ai/analysis';
+import { ApiError, apiError, parseStoredJson } from '@/lib/api';
 
 export async function POST(
   _request: NextRequest,
@@ -13,15 +14,18 @@ export async function POST(
 
     const experiments = await db<{ id: string; project_id: string }>`SELECT id, project_id FROM experiments WHERE id = ${experimentId}`;
     if (experiments.length === 0) {
-      return NextResponse.json({ error: 'Experiment not found' }, { status: 404 });
+      throw new ApiError('Experiment not found.', 404);
     }
     const experiment = experiments[0];
 
     const analysisRows = await db<{ analysis_json: string }>`SELECT analysis_json FROM product_analyses WHERE project_id = ${experiment.project_id} ORDER BY created_at DESC LIMIT 1`;
     if (analysisRows.length === 0) {
-      return NextResponse.json({ error: 'No analysis found' }, { status: 404 });
+      throw new ApiError('No analysis found for this experiment.', 404);
     }
-    const analysis = JSON.parse(analysisRows[0].analysis_json);
+    const analysis = parseStoredJson<Parameters<typeof analyzeExperimentResults>[2]>(
+      analysisRows[0].analysis_json,
+      'analysis'
+    );
 
     const variants = await db<{ id: string; name: string }>`SELECT id, name FROM variants WHERE experiment_id = ${experimentId}`;
 
@@ -50,9 +54,7 @@ export async function POST(
 
     return NextResponse.json({ analysis: growthAnalysis });
   } catch (error: unknown) {
-    console.error('[LEARNING] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to generate analysis';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('LEARNING', error);
   }
 }
 
@@ -69,13 +71,11 @@ export async function GET(
     return NextResponse.json({
       learnings: learnings.map(l => ({
         id: l.id,
-        analysis: JSON.parse(l.analysis_json),
+        analysis: parseStoredJson(l.analysis_json, 'learning'),
         created_at: l.created_at,
       })),
     });
   } catch (error: unknown) {
-    console.error('[LEARNING:GET] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to fetch learnings';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('LEARNING:GET', error);
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
+import { ApiError, apiError, parseStoredJson } from '@/lib/api';
 
 export async function GET(
   request: NextRequest,
@@ -13,13 +14,13 @@ export async function GET(
     const variantName = searchParams.get('name');
 
     if (!variantName) {
-      return NextResponse.json({ error: 'Variant name required' }, { status: 400 });
+      throw new ApiError('Variant name required.', 400);
     }
 
     const variants = await db<{ id: string; name: string; positioning_json: string; landing_content_json: string }>`SELECT id, name, positioning_json, landing_content_json FROM variants WHERE experiment_id = ${experimentId} AND name = ${variantName}`;
 
     if (variants.length === 0) {
-      return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
+      throw new ApiError('Variant not found.', 404);
     }
 
     const variant = variants[0];
@@ -28,13 +29,11 @@ export async function GET(
       variant: {
         id: variant.id,
         name: variant.name,
-        positioning: JSON.parse(variant.positioning_json),
-        landingContent: JSON.parse(variant.landing_content_json),
+        positioning: parseStoredJson(variant.positioning_json, 'positioning'),
+        landingContent: parseStoredJson(variant.landing_content_json, 'landing content'),
       },
     });
   } catch (error: unknown) {
-    console.error('[VARIANT] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to fetch variant';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('VARIANT', error);
   }
 }

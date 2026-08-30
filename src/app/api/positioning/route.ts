@@ -2,27 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { generatePositioning, generateLandingContent } from '@/lib/ai/analysis';
+import { ApiError, apiError, parseStoredJson, readJsonBody, readString } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.clone().json();
+    const body = await readJsonBody<Record<string, unknown>>(request);
     await initDB();
 
-    const { projectId } = body;
-
-    if (!projectId) {
-      return NextResponse.json({ error: 'Project ID required' }, { status: 400 });
-    }
+    const projectId = readString(body.projectId, 'Project ID', { max: 100 });
 
     const analysisRows = await db<{ analysis_json: string }>`SELECT analysis_json FROM product_analyses WHERE project_id = ${projectId} ORDER BY created_at DESC LIMIT 1`;
     if (analysisRows.length === 0) {
-      return NextResponse.json({ error: 'No analysis found for project' }, { status: 404 });
+      throw new ApiError('No analysis found for this project.', 404);
     }
 
     const contextRows = await db<{ target_user: string | null; alternative: string | null; differentiation: string | null; desired_action: string | null }>`SELECT * FROM founder_contexts WHERE project_id = ${projectId} ORDER BY created_at DESC LIMIT 1`;
     const contextRow = contextRows[0];
 
-    const analysis = JSON.parse(analysisRows[0].analysis_json);
+    const analysis = parseStoredJson<Parameters<typeof generatePositioning>[0]>(
+      analysisRows[0].analysis_json,
+      'analysis'
+    );
 
     const hypotheses = await generatePositioning(analysis, {
       target_user: contextRow?.target_user || undefined,
@@ -47,13 +47,11 @@ export async function POST(request: NextRequest) {
       variants: fullVariants.map(v => ({
         id: v.id,
         name: v.name,
-        positioning: JSON.parse(v.positioning_json),
-        landingContent: JSON.parse(v.landing_content_json),
+        positioning: parseStoredJson(v.positioning_json, 'positioning'),
+        landingContent: parseStoredJson(v.landing_content_json, 'landing content'),
       })),
     });
   } catch (error: unknown) {
-    console.error('[POSITIONING] Error:', error);
-    const message = error instanceof Error ? error.message : 'Positioning generation failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('POSITIONING', error);
   }
 }

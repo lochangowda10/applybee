@@ -2,30 +2,55 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { parseGitHubUrl, gatherRepoIntelligence } from '@/lib/github/service';
-import { analyzeRepository } from '@/lib/ai/analysis';
+import { analyzeRepository, type ProductAnalysis } from '@/lib/ai/analysis';
+import {
+  classifyInput,
+  toAbsoluteUrl,
+  analyzeProductUrl,
+  analyzeDescription,
+} from '@/lib/input/sources';
+import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
+
+type RepoInfo = Awaited<ReturnType<typeof gatherRepoIntelligence>>['repoInfo'];
 
 export async function POST(request: NextRequest) {
   try {
-    // Clone request FIRST — Next.js 16 can consume the body stream
-    const body = await request.clone().json();
+    const body = await readJsonBody<{
+      repoUrl?: unknown;
+      productUrl?: unknown;
+      description?: unknown;
+      input?: unknown;
+      ref?: unknown;
+    }>(request);
     await initDB();
 
-    const { repoUrl, productUrl, ref } = body;
+    // Accept the three declared inputs under any of the field names the client
+    // has used, then classify rather than trusting which field it arrived in —
+    // a pasted paragraph used to land in productUrl and crash `new URL()`.
+    const raw =
+      readString(body.input, 'input', { required: false, max: 4000 }) ||
+      readString(body.repoUrl, 'repoUrl', { required: false, max: 500 }) ||
+      readString(body.productUrl, 'productUrl', { required: false, max: 500 }) ||
+      readString(body.description, 'description', { required: false, max: 4000 });
 
-    if (!repoUrl && !productUrl) {
-      return NextResponse.json({ error: 'Please provide a GitHub repository URL or product URL' }, { status: 400 });
+    if (!raw) {
+      throw new ApiError(
+        'Paste a public GitHub repository, a product URL, or describe your product in a sentence.',
+        400
+      );
     }
 
+    const ref = readString(body.ref, 'ref', { required: false, max: 100 });
+    const kind = classifyInput(raw);
     const projectId = crypto.randomUUID();
 
     /**
      * Records that this project was started by someone who arrived through a
-     * generated page. Best-effort: a bad or stale ref must never stop a
-     * founder from analyzing their product, so failures are logged and
-     * swallowed rather than surfaced.
+     * generated page. Best-effort: a stale or forged ref must never stop a
+     * founder from analyzing their product.
      */
     async function recordReferral() {
-      if (!ref || typeof ref !== 'string') return;
+      if (!ref) return;
       try {
         const rows = await db<{ id: string; experiment_id: string }>`
           SELECT id, experiment_id FROM variants WHERE id = ${ref}
@@ -40,45 +65,62 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (repoUrl) {
-      const parsed = parseGitHubUrl(repoUrl);
-      if (!parsed) {
-        return NextResponse.json({ error: 'Invalid GitHub URL. Use format: https://github.com/owner/repo' }, { status: 400 });
-      }
+    let name: string;
+    let repoUrlValue: string | null = null;
+    let productUrlValue: string | null = null;
+    let analysis: ProductAnalysis;
+    let repoInfo: RepoInfo | null = null;
 
-      await db`INSERT INTO projects (id, name, repo_url, created_at) VALUES (${projectId}, ${parsed.repo}, ${repoUrl}, NOW())`;
+    if (kind === 'repo') {
+      const parsed = parseGitHubUrl(raw);
+      if (!parsed) {
+        throw new ApiError(
+          'That GitHub URL could not be read. Use the format https://github.com/owner/repo.',
+          400
+        );
+      }
+      name = parsed.repo;
+      repoUrlValue = raw;
+
+      await db`INSERT INTO projects (id, name, repo_url, created_at) VALUES (${projectId}, ${name}, ${repoUrlValue}, NOW())`;
       await recordReferral();
 
       const intelligence = await gatherRepoIntelligence(parsed.owner, parsed.repo);
-      const analysis = await analyzeRepository(intelligence);
+      analysis = await analyzeRepository(intelligence);
+      repoInfo = intelligence.repoInfo;
+    } else if (kind === 'url') {
+      const absolute = toAbsoluteUrl(raw);
+      if (!absolute) {
+        throw new ApiError(
+          'That does not look like a reachable web address. Try a full URL, or describe your product instead.',
+          400
+        );
+      }
+      name = new URL(absolute).hostname.replace(/^www\./, '');
+      productUrlValue = absolute;
 
-      await db`INSERT INTO product_analyses (id, project_id, analysis_json, created_at) VALUES (${crypto.randomUUID()}, ${projectId}, ${JSON.stringify(analysis)}, NOW())`;
-
-      return NextResponse.json({ projectId, analysis, repoInfo: intelligence.repoInfo });
-    } else {
-      const hostname = new URL(productUrl).hostname;
-      await db`INSERT INTO projects (id, name, product_url, created_at) VALUES (${projectId}, ${hostname}, ${productUrl}, NOW())`;
+      await db`INSERT INTO projects (id, name, product_url, created_at) VALUES (${projectId}, ${name}, ${productUrlValue}, NOW())`;
       await recordReferral();
 
-      const analysis = {
-        product_name: hostname,
-        summary: `Product at ${productUrl}`,
-        problem: 'User-provided product URL',
-        target_users: ['End users'],
-        features: ['Product functionality'],
-        technical_capabilities: ['Web application'],
-        differentiators: ['Unique approach'],
-        evidence: [`User provided URL: ${productUrl}`],
-        confidence: 0.3,
-      };
+      analysis = await analyzeProductUrl(absolute);
+    } else {
+      if (raw.length < 12) {
+        throw new ApiError(
+          'Tell us a little more — a sentence about what your product does is enough.',
+          400
+        );
+      }
+      analysis = await analyzeDescription(raw);
+      name = analysis.product_name || 'Your product';
 
-      await db`INSERT INTO product_analyses (id, project_id, analysis_json, created_at) VALUES (${crypto.randomUUID()}, ${projectId}, ${JSON.stringify(analysis)}, NOW())`;
-
-      return NextResponse.json({ projectId, analysis, repoInfo: null });
+      await db`INSERT INTO projects (id, name, created_at) VALUES (${projectId}, ${name}, NOW())`;
+      await recordReferral();
     }
+
+    await db`INSERT INTO product_analyses (id, project_id, analysis_json, created_at) VALUES (${crypto.randomUUID()}, ${projectId}, ${JSON.stringify(analysis)}, NOW())`;
+
+    return NextResponse.json({ projectId, analysis, repoInfo, inputKind: kind });
   } catch (error: unknown) {
-    console.error('[ANALYZE] Error:', error);
-    const message = error instanceof Error ? error.message : 'Analysis failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('ANALYZE', error);
   }
 }

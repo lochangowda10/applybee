@@ -57,10 +57,10 @@ export default function Home() {
     setError(null);
 
     try {
-      const isGitHub = url.includes("github.com");
-      const body: Record<string, string> = isGitHub
-        ? { repoUrl: url }
-        : { productUrl: url };
+      // Send the raw input and let the server classify it. Guessing here is
+      // what previously routed a typed paragraph into productUrl, where it
+      // reached new URL() and threw.
+      const body: Record<string, string> = { input: url };
       if (referrer) body.ref = referrer;
 
       const res = await fetch("/api/analyze", {
@@ -148,7 +148,7 @@ export default function Home() {
                   type="text"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://github.com/user/project"
+                  placeholder="github.com/you/repo · yoursite.com · or describe it"
                   className="w-full h-14 pl-12 pr-36 rounded-xl border border-border bg-card text-foreground placeholder:text-muted-foreground/50 text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all"
                   disabled={loading}
                 />
@@ -194,7 +194,7 @@ export default function Home() {
             </form>
 
             <p className="text-xs text-muted-foreground/60 mt-4">
-              Supports public GitHub repositories and deployed product URLs
+              A public repo, a live product URL, or one sentence about what you built
             </p>
             {referrer && (
               <p className="mt-2 text-xs text-muted-foreground/60">

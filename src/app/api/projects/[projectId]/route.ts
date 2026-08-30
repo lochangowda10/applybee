@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
+import { ApiError, apiError, parseStoredJson } from '@/lib/api';
 
 /**
  * Rehydrates a project from the database.
@@ -19,7 +20,7 @@ export async function GET(
     const { projectId } = await params;
 
     if (!projectId) {
-      return NextResponse.json({ error: 'Project ID required' }, { status: 400 });
+      throw new ApiError('Project ID required.', 400);
     }
 
     const projects = await db<{
@@ -30,7 +31,7 @@ export async function GET(
     }>`SELECT id, name, repo_url, product_url FROM projects WHERE id = ${projectId}`;
 
     if (projects.length === 0) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      throw new ApiError('Project not found.', 404);
     }
 
     const analysisRows = await db<{ analysis_json: string }>`
@@ -39,15 +40,10 @@ export async function GET(
       ORDER BY created_at DESC LIMIT 1
     `;
     if (analysisRows.length === 0) {
-      return NextResponse.json({ error: 'No analysis found for project' }, { status: 404 });
+      throw new ApiError('No analysis found for this project.', 404);
     }
 
-    let analysis: unknown;
-    try {
-      analysis = JSON.parse(analysisRows[0].analysis_json);
-    } catch {
-      return NextResponse.json({ error: 'Stored analysis is unreadable' }, { status: 500 });
-    }
+    const analysis = parseStoredJson<unknown>(analysisRows[0].analysis_json, 'analysis');
 
     // Founder context, so the questionnaire is not asked twice.
     const contextRows = await db<{
@@ -112,8 +108,6 @@ export async function GET(
       variants,
     });
   } catch (error: unknown) {
-    console.error('[PROJECT] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to load project';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('PROJECT', error);
   }
 }

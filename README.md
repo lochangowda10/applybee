@@ -2,7 +2,7 @@
 
 **Founders don't fail because the code is bad. They fail because nobody understands what it's for.**
 
-LaunchLoop takes a repo, a product URL, or a sentence — and finds out what makes people care, by asking real visitors instead of guessing.
+Give LaunchLoop a repo, a live product URL, or one sentence about what you built. It writes two opposing positions, deploys both as real landing pages, and lets actual visitors tell you which one lands — and what they misread.
 
 **Live:** [applybee.vercel.app](https://applybee.vercel.app) · **See a completed run:** [applybee.vercel.app/demo](https://applybee.vercel.app/demo)
 
@@ -17,7 +17,9 @@ Positioning is normally a guess a founder makes once, alone, and never tests. La
 ```
  Repo · product URL · plain description
               ↓
-     Read what the product does          ← evidence pulled from the code
+     Read what the product does          ← repo: code, README, deps, routes
+                                         ← URL:  the page's own copy, fetched
+                                         ← text: the founder's own words
               ↓
   Two OPPOSING positioning hypotheses    ← outcome/pain  vs  capability/transformation
               ↓
@@ -33,6 +35,21 @@ Positioning is normally a guess a founder makes once, alone, and never tests. La
 ```
 
 The V3 step is what makes this a loop rather than a generator. Most AI page tools stop at "here is a landing page." LaunchLoop's output is a *finding*: which framing worked, which confused people, and what to say instead.
+
+### Three ways in
+
+The pipeline is identical whichever you use — same analysis shape, same two
+hypotheses, same deployed pages, same rewrite.
+
+| Input | What it reads | Example |
+|---|---|---|
+| **Public repo** | README, file tree, key file contents, dependencies | `github.com/you/project` |
+| **Live product URL** | The page's own title, meta and body copy, fetched and stripped | `linear.app` |
+| **Plain description** | One sentence in the founder's own words | *"A tool that finds which flaky test costs you the most hours."* |
+
+The last two matter most in practice: at a live event, few people will hand a
+stranger their private repo. Confidence is reported honestly per input — a
+sentence is less evidence than a codebase, and the analysis says so.
 
 ---
 
@@ -123,13 +140,16 @@ src/
 │   ├── x/[experimentId]/             # 50/50 assignment, sticky per visitor
 │   ├── project/[projectId]/          # founder's dashboard
 │   ├── demo/                         # recorded run, no live AI call needed
+│   ├── referrals/                    # who found us through whose page
 │   └── page.tsx
 ├── lib/
 │   ├── ai/
 │   │   ├── provider.ts               # timeout, parameter repair, JSON recovery
 │   │   └── analysis.ts               # the four AI steps, each with a fallback
+│   ├── input/sources.ts              # product-URL fetching, description analysis
 │   ├── github/service.ts             # repo intelligence, rate-limit handling
 │   ├── demo/                         # frozen snapshot + idempotent seeder
+│   ├── api.ts                        # body parsing, validation, safe errors
 │   ├── errors.ts                     # raw failures → human sentences
 │   ├── db.ts                         # Neon Postgres over HTTP
 │   └── db-schema.ts                  # schema init, one transaction
@@ -153,14 +173,17 @@ src/
 
 **State lives in Postgres, not sessionStorage.** A refresh used to strand the user on a progress animation that never finished. Any run can now be resumed from its URL, questionnaire answers included.
 
-**Errors are translated before they're shown.** Provider strings like `AI API error (400): {"error":...}` never reach a user; they map to a plain sentence, a next action, and whether retrying will help.
+**Errors are translated before they're shown.** Provider strings like `AI API error (400): {"error":...}` never reach a user; they map to a plain sentence, a next action, and whether retrying will help. At the API layer the same rule holds: a caller's mistake returns its own message, anything internal is logged in full and answered generically, so a failure can't leak configuration detail into a browser.
+
+**Input is classified server-side, not guessed by the client.** The page sends what was typed; the server decides whether it is a repo, a URL, or prose. Guessing in the browser is what previously routed a typed paragraph into the URL field, where it reached `new URL()` and threw a 500.
 
 ---
 
 ## Honest limitations
 
 - Sample sizes in a hackathon setting are small. The product says so on every screen rather than implying significance it hasn't earned.
-- There is no authentication yet. Anyone with a project URL can view its dashboard.
+- There is no authentication. Anyone holding a project URL can view its dashboard, and the ids are unguessable UUIDs rather than a real access control. This is the largest known gap.
+- Visitor events are validated but not rate limited, so the counts assume good faith. Fine for a demo; not for production.
 - V3 is proposed, never auto-deployed — deliberate, but it does mean the loop needs one human step to close.
 
 ---

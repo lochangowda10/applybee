@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
+import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.clone().json();
+    const body = await readJsonBody<Record<string, unknown>>(request);
     await initDB();
 
-    const { projectId, targetUser, alternative, differentiation, desiredAction } = body;
+    const projectId = readString(body.projectId, 'Project ID', { max: 100 });
 
-    if (!projectId) {
-      return NextResponse.json({ error: 'Project ID required' }, { status: 400 });
+    const project = await db<{ id: string }>`SELECT id FROM projects WHERE id = ${projectId}`;
+    if (project.length === 0) {
+      throw new ApiError('Project not found.', 404);
     }
+
+    const targetUser = readString(body.targetUser, 'targetUser', { required: false });
+    const alternative = readString(body.alternative, 'alternative', { required: false });
+    const differentiation = readString(body.differentiation, 'differentiation', { required: false });
+    const desiredAction = readString(body.desiredAction, 'desiredAction', { required: false });
 
     const existing = await db<{ id: string }>`SELECT id FROM founder_contexts WHERE project_id = ${projectId}`;
 
@@ -23,8 +30,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    console.error('[CONTEXT] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to save context';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('CONTEXT', error);
   }
 }

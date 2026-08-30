@@ -22,14 +22,46 @@ try {
   /* running against a deployed URL; no local env needed */
 }
 
+// All three declared input types, since the pipeline must be identical
+// regardless of which one a founder uses.
 const CASES = [
-  { name: "repo: swinglens", body: { repoUrl: "https://github.com/hanamaraddi9620adi/swinglens" } },
-  { name: "repo: sindresorhus/got", body: { repoUrl: "https://github.com/sindresorhus/got" } },
-  { name: "repo: expressjs/express", body: { repoUrl: "https://github.com/expressjs/express" } },
-  { name: "product url", body: { productUrl: "https://vercel.com" } },
+  { name: "repo: swinglens", body: { input: "https://github.com/hanamaraddi9620adi/swinglens" } },
+  { name: "repo: sindresorhus/got", body: { input: "https://github.com/sindresorhus/got" } },
+  { name: "repo: expressjs/express", body: { input: "https://github.com/expressjs/express" } },
+  { name: "product url: vercel", body: { input: "https://vercel.com" } },
+  { name: "product url: bare domain", body: { input: "linear.app" } },
+  {
+    name: "plain description",
+    body: {
+      input:
+        "A tool that watches your CI pipeline and tells you which flaky test is costing your team the most engineering hours each week.",
+    },
+  },
 ];
 
 const ms = (t) => `${((Date.now() - t) / 1000).toFixed(1)}s`;
+
+/**
+ * Every request is bounded. Without this a wedged server hangs the harness
+ * indefinitely instead of reporting a failure, which is the one thing a
+ * task-success harness must never do.
+ */
+const STEP_TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS) || 120_000;
+
+async function req(url, init = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STEP_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error(`timed out after ${STEP_TIMEOUT_MS / 1000}s: ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function json(res) {
   const text = await res.text();
@@ -46,7 +78,7 @@ async function runCase(c) {
   try {
     // 1. Analyze
     let t = Date.now();
-    let res = await fetch(`${BASE}/api/analyze`, {
+    let res = await req(`${BASE}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(c.body),
@@ -59,7 +91,7 @@ async function runCase(c) {
 
     // 2. Positioning + deploy both variants
     t = Date.now();
-    res = await fetch(`${BASE}/api/positioning`, {
+    res = await req(`${BASE}/api/positioning`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectId }),
@@ -76,20 +108,20 @@ async function runCase(c) {
     // 3. Both variant pages must actually serve
     t = Date.now();
     for (const v of ["a", "b"]) {
-      const r = await fetch(`${BASE}/e/${experimentId}/${v}`);
+      const r = await req(`${BASE}/e/${experimentId}/${v}`);
       if (!r.ok) throw new Error(`variant ${v} page: HTTP ${r.status}`);
     }
     steps.pages = ms(t);
 
     // 4. Record a visitor and a comment
     t = Date.now();
-    res = await fetch(`${BASE}/api/experiments/${experimentId}/events`, {
+    res = await req(`${BASE}/api/experiments/${experimentId}/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ variantId, eventType: "page_view", sessionId: "e2e" }),
     });
     if (!res.ok) throw new Error(`events: HTTP ${res.status}`);
-    res = await fetch(`${BASE}/api/experiments/${experimentId}/feedback`, {
+    res = await req(`${BASE}/api/experiments/${experimentId}/feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ variantId, text: "Not sure who this is for." }),
@@ -99,7 +131,7 @@ async function runCase(c) {
 
     // 5. V3 proposal
     t = Date.now();
-    res = await fetch(`${BASE}/api/experiments/${experimentId}/learning`, {
+    res = await req(`${BASE}/api/experiments/${experimentId}/learning`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
@@ -112,7 +144,7 @@ async function runCase(c) {
 
     // 6. Resume from a cold start (Memory)
     t = Date.now();
-    res = await fetch(`${BASE}/api/projects/${projectId}`);
+    res = await req(`${BASE}/api/projects/${projectId}`);
     d = await json(res);
     if (!res.ok || d.variants?.length !== 2) throw new Error(`resume: ${d.error || res.status}`);
     steps.resume = ms(t);
