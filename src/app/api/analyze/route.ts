@@ -10,6 +10,7 @@ import {
   analyzeDescription,
 } from '@/lib/input/sources';
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
+import { ensureOwnerId } from '@/lib/owner';
 
 type RepoInfo = Awaited<ReturnType<typeof gatherRepoIntelligence>>['repoInfo'];
 
@@ -43,6 +44,10 @@ export async function POST(request: NextRequest) {
     const ref = readString(body.ref, 'ref', { required: false, max: 100 });
     const kind = classifyInput(raw);
     const projectId = crypto.randomUUID();
+
+    // The project is claimed by whoever created it. Minting the id here means
+    // a founder never sees a sign-up form before they have seen the product.
+    const { ownerId, setOn } = ensureOwnerId(request);
 
     /**
      * Records that this project was started by someone who arrived through a
@@ -82,7 +87,7 @@ export async function POST(request: NextRequest) {
       name = parsed.repo;
       repoUrlValue = raw;
 
-      await db`INSERT INTO projects (id, name, repo_url, created_at) VALUES (${projectId}, ${name}, ${repoUrlValue}, NOW())`;
+      await db`INSERT INTO projects (id, name, repo_url, owner_id, created_at) VALUES (${projectId}, ${name}, ${repoUrlValue}, ${ownerId}, NOW())`;
       await recordReferral();
 
       const intelligence = await gatherRepoIntelligence(parsed.owner, parsed.repo);
@@ -99,7 +104,7 @@ export async function POST(request: NextRequest) {
       name = new URL(absolute).hostname.replace(/^www\./, '');
       productUrlValue = absolute;
 
-      await db`INSERT INTO projects (id, name, product_url, created_at) VALUES (${projectId}, ${name}, ${productUrlValue}, NOW())`;
+      await db`INSERT INTO projects (id, name, product_url, owner_id, created_at) VALUES (${projectId}, ${name}, ${productUrlValue}, ${ownerId}, NOW())`;
       await recordReferral();
 
       analysis = await analyzeProductUrl(absolute);
@@ -113,13 +118,15 @@ export async function POST(request: NextRequest) {
       analysis = await analyzeDescription(raw);
       name = analysis.product_name || 'Your product';
 
-      await db`INSERT INTO projects (id, name, created_at) VALUES (${projectId}, ${name}, NOW())`;
+      await db`INSERT INTO projects (id, name, owner_id, created_at) VALUES (${projectId}, ${name}, ${ownerId}, NOW())`;
       await recordReferral();
     }
 
     await db`INSERT INTO product_analyses (id, project_id, analysis_json, created_at) VALUES (${crypto.randomUUID()}, ${projectId}, ${JSON.stringify(analysis)}, NOW())`;
 
-    return NextResponse.json({ projectId, analysis, repoInfo, inputKind: kind });
+    const response = NextResponse.json({ projectId, analysis, repoInfo, inputKind: kind });
+    setOn(response);
+    return response;
   } catch (error: unknown) {
     return apiError('ANALYZE', error);
   }

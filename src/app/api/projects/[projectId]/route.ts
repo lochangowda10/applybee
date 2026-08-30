@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { ApiError, apiError, parseStoredJson } from '@/lib/api';
+import { readOwnerId, isOwnershipEnabled } from '@/lib/owner';
 
 /**
  * Rehydrates a project from the database.
@@ -28,7 +29,8 @@ export async function GET(
       name: string;
       repo_url: string | null;
       product_url: string | null;
-    }>`SELECT id, name, repo_url, product_url FROM projects WHERE id = ${projectId}`;
+      owner_id: string | null;
+    }>`SELECT id, name, repo_url, product_url, owner_id FROM projects WHERE id = ${projectId}`;
 
     if (projects.length === 0) {
       throw new ApiError('Project not found.', 404);
@@ -99,13 +101,24 @@ export async function GET(
       if (variants.length === 0) experimentId = null;
     }
 
+    /**
+     * Reading is open on purpose — these links are meant to be shared, and a
+     * dashboard nobody but the author can open is a worse product. What the
+     * caller gets is an honest answer about which of the two they are, so the
+     * page can show the founder's controls to the founder and not to a guest.
+     */
+    const { owner_id: ownerId, ...project } = projects[0];
+    const isOwner = !isOwnershipEnabled() || !ownerId || ownerId === readOwnerId(request);
+
     return NextResponse.json({
       projectId,
-      project: projects[0],
+      project,
       analysis,
       context: contextRows[0] ?? null,
       experimentId,
       variants,
+      isOwner,
+      claimed: Boolean(ownerId),
     });
   } catch (error: unknown) {
     return apiError('PROJECT', error);

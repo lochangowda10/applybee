@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { generatePositioning, generateLandingContent } from '@/lib/ai/analysis';
 import { ApiError, apiError, parseStoredJson, readJsonBody, readString } from '@/lib/api';
+import { readOwnerId, canModify } from '@/lib/owner';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,6 +11,19 @@ export async function POST(request: NextRequest) {
     await initDB();
 
     const projectId = readString(body.projectId, 'Project ID', { max: 100 });
+
+    // Generating and deploying pages spends real money and puts URLs in front
+    // of strangers, so it is restricted to whoever started the project.
+    const owner = await db<{ owner_id: string | null }>`SELECT owner_id FROM projects WHERE id = ${projectId}`;
+    if (owner.length === 0) {
+      throw new ApiError('Project not found.', 404);
+    }
+    if (!canModify(owner[0].owner_id, readOwnerId(request))) {
+      throw new ApiError(
+        'This project was created in a different browser. Open it from the browser you started it in.',
+        403
+      );
+    }
 
     const analysisRows = await db<{ analysis_json: string }>`SELECT analysis_json FROM product_analyses WHERE project_id = ${projectId} ORDER BY created_at DESC LIMIT 1`;
     if (analysisRows.length === 0) {

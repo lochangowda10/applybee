@@ -121,6 +121,14 @@ function ddl(): unknown[] {
       )
     `,
     sqlQuery`CREATE UNIQUE INDEX IF NOT EXISTS idx_intents_email_plan ON purchase_intents (email, plan)`,
+    /**
+     * Ownership, added after the fact. ALTER ... IF NOT EXISTS keeps this
+     * idempotent alongside the CREATEs above, and the column is nullable on
+     * purpose: rows that predate ownership stay unclaimed and writable rather
+     * than becoming read-only the moment this ships.
+     */
+    sqlQuery`ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id TEXT`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects (owner_id)`,
     // Indexes on every foreign key the read paths filter by. Without these the
     // dashboard scans the whole events table on each load.
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_analytics_experiment ON analytics_events (experiment_id)`,

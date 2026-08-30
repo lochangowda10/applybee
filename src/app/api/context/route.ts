@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
+import { readOwnerId, canModify } from '@/lib/owner';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,9 +11,16 @@ export async function POST(request: NextRequest) {
 
     const projectId = readString(body.projectId, 'Project ID', { max: 100 });
 
-    const project = await db<{ id: string }>`SELECT id FROM projects WHERE id = ${projectId}`;
+    const project = await db<{ id: string; owner_id: string | null }>`SELECT id, owner_id FROM projects WHERE id = ${projectId}`;
     if (project.length === 0) {
       throw new ApiError('Project not found.', 404);
+    }
+    // The founder's own answers are theirs to change.
+    if (!canModify(project[0].owner_id, readOwnerId(request))) {
+      throw new ApiError(
+        'This project was created in a different browser. Open it from the browser you started it in.',
+        403
+      );
     }
 
     const targetUser = readString(body.targetUser, 'targetUser', { required: false });

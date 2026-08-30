@@ -1,6 +1,6 @@
 import { db } from '../db';
 import { initDB } from '../init';
-import { DEMO_SNAPSHOT } from './snapshot';
+import { DEMO_SNAPSHOT, DEMO_LEARNING } from './snapshot';
 
 /**
  * Fixed IDs so /demo is stable across deploys and re-seeding is idempotent.
@@ -10,6 +10,7 @@ export const DEMO_PROJECT_ID = 'demo0000-0000-4000-8000-000000000001';
 export const DEMO_EXPERIMENT_ID = 'demo0000-0000-4000-8000-000000000002';
 export const DEMO_VARIANT_A_ID = 'demo0000-0000-4000-8000-00000000000a';
 export const DEMO_VARIANT_B_ID = 'demo0000-0000-4000-8000-00000000000b';
+export const DEMO_LEARNING_ID = 'demo0000-0000-4000-8000-00000000000c';
 
 /**
  * Visitor sessions replayed for the demo experiment.
@@ -119,6 +120,19 @@ export async function ensureDemoSeed(): Promise<void> {
     }
     n++;
   }
+
+  /**
+   * The recorded results analysis for this run.
+   *
+   * Without this row the demo experiment stops one step short of the thing the
+   * product is actually about: V3 is built from the stored learning, so a
+   * seeded run missing it could be viewed but never continued.
+   */
+  await db`
+    INSERT INTO experiment_learnings (id, experiment_id, analysis_json, created_at)
+    VALUES (${DEMO_LEARNING_ID}, ${DEMO_EXPERIMENT_ID}, ${JSON.stringify(DEMO_LEARNING)}, NOW())
+    ON CONFLICT (id) DO NOTHING
+  `;
 
   seeded = true;
   console.log('[DEMO] Seeded demo experiment');
