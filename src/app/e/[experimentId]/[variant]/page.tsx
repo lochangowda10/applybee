@@ -65,15 +65,28 @@ export default function ExperimentPage({
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [ctaClicked, setCtaClicked] = useState(false);
 
-  // Generate or retrieve session ID
+  /**
+   * A stable id for this visitor, used to count one person once.
+   *
+   * Guarded because this page is opened by strangers on their own phones, and
+   * a browser in private mode throws on the first sessionStorage access. An
+   * unguarded throw here would replace the product page with an error screen
+   * for a visitor who will not try a second time. Without storage they still
+   * get a page and still count — they just count as a new person if they
+   * reload, which is a far smaller loss than losing them entirely.
+   */
   const getSessionId = useCallback(() => {
     if (typeof window === "undefined") return "";
-    let sid = sessionStorage.getItem("ll_session_id");
-    if (!sid) {
-      sid = crypto.randomUUID();
-      sessionStorage.setItem("ll_session_id", sid);
+    try {
+      let sid = sessionStorage.getItem("ll_session_id");
+      if (!sid) {
+        sid = crypto.randomUUID();
+        sessionStorage.setItem("ll_session_id", sid);
+      }
+      return sid;
+    } catch {
+      return crypto.randomUUID();
     }
-    return sid;
   }, []);
 
   // Load variant data from API

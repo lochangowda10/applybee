@@ -5,14 +5,37 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 /**
- * A/B Distribution Page
+ * Traffic split. This is where a scanned QR code lands.
  *
- * When a visitor opens /x/{experimentId}:
- * 1. Check if they already have an assignment for this experiment
- * 2. If not, randomly assign A or B (50/50)
- * 3. Persist the assignment in localStorage
- * 4. Redirect to the assigned variant
+ * A visitor is assigned A or B once and keeps that assignment, so a second
+ * visit does not silently move them into the other arm and corrupt the
+ * comparison the founder is about to read.
+ *
+ * Every storage access is guarded. A phone in private browsing throws on the
+ * first localStorage read, and an unguarded throw here would take the visitor
+ * to an error screen instead of the page they scanned for — on the one surface
+ * where the visitor is a stranger who will not try twice. Losing stickiness is
+ * an acceptable degradation; losing the visitor is not.
  */
+
+function readAssignment(key: string): "a" | "b" | null {
+  try {
+    const value = localStorage.getItem(key);
+    return value === "a" || value === "b" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistAssignment(key: string, value: "a" | "b"): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage unavailable. The visitor still gets a page; they just are not
+    // pinned to this arm if they come back.
+  }
+}
+
 export default function DistributionPage({
   params,
 }: {
@@ -20,59 +43,36 @@ export default function DistributionPage({
 }) {
   const { experimentId } = use(params);
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const [stalled, setStalled] = useState(false);
 
   useEffect(() => {
-    const storageKey = `ll_assign_${experimentId}`;
-    let assignment = localStorage.getItem(storageKey);
+    const key = `ll_assign_${experimentId}`;
+    const assignment = readAssignment(key) ?? (Math.random() < 0.5 ? "a" : "b");
+    persistAssignment(key, assignment);
 
-    if (!assignment || (assignment !== "a" && assignment !== "b")) {
-      // Random 50/50 assignment
-      assignment = Math.random() < 0.5 ? "a" : "b";
-      localStorage.setItem(storageKey, assignment);
-    }
+    router.replace(`/e/${experimentId}/${assignment}`);
 
-    // Small delay to ensure localStorage is written
-    const timer = setTimeout(() => {
-      try {
-        router.replace(`/e/${experimentId}/${assignment}`);
-      } catch {
-        setError("Failed to redirect. Please try the direct link.");
-      }
-    }, 100);
-
+    // If the client-side navigation has not happened shortly, offer a plain
+    // link rather than leaving a stranger watching a spinner.
+    const timer = setTimeout(() => setStalled(true), 2500);
     return () => clearTimeout(timer);
   }, [experimentId, router]);
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-sm text-destructive mb-4">{error}</p>
-          <div className="flex gap-3 justify-center">
+  return (
+    <div className="min-h-screen flex items-center justify-center px-6">
+      <div className="text-center">
+        <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+        {stalled && (
+          <div className="mt-6">
+            <p className="text-sm text-muted-foreground">Taking longer than it should.</p>
             <a
               href={`/e/${experimentId}/a`}
-              className="px-4 py-2 rounded-lg bg-foreground text-background text-sm font-medium"
+              className="mt-3 inline-block text-sm underline underline-offset-4"
             >
-              Try Variant A
-            </a>
-            <a
-              href={`/e/${experimentId}/b`}
-              className="px-4 py-2 rounded-lg border border-border text-sm font-medium"
-            >
-              Try Variant B
+              Open the page
             </a>
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Setting up your experiment…</p>
+        )}
       </div>
     </div>
   );

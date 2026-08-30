@@ -77,7 +77,14 @@ export default function Home() {
         throw new Error(data.error || `Analysis failed (${res.status})`);
       }
 
-      sessionStorage.setItem(`project_${data.projectId}`, JSON.stringify(data));
+      // A convenience hand-off, not the source of truth: the project page
+      // reads from the database when this is missing. So a storage failure
+      // must not surface as an error on an analysis that actually succeeded.
+      try {
+        sessionStorage.setItem(`project_${data.projectId}`, JSON.stringify(data));
+      } catch {
+        /* private browsing or quota — the project page will refetch */
+      }
       router.push(`/project/${data.projectId}`);
     } catch (err: unknown) {
       setError(humanizeError(err));
@@ -257,12 +264,14 @@ export default function Home() {
               Closed Feedback Loop
             </div>
             <h2 className="display mb-5 text-balance text-[clamp(1.8rem,5vw,2.8rem)]">
-              Not just generation. Continuous improvement.
+              Writing the copy is the easy part.
             </h2>
             <p className="text-muted-foreground max-w-lg mx-auto leading-relaxed">
-              LaunchLoop observes real visitors, forms hypotheses, deploys experiments,
-              measures results, learns, and generates improved iterations automatically.
-              This is what separates it from a one-shot AI page generator.
+              Any language model will write you two headlines. None of them has
+              met your customers. LaunchLoop puts both versions in front of real
+              strangers, records what they did and what they misread, and
+              proposes the next version from that — not from its own opinion.
+              The rewrite is a proposal. You approve it before anyone sees it.
             </p>
             <div className="flex items-center justify-center gap-3 mt-10 text-sm text-muted-foreground">
               <span className="px-3 py-1.5 rounded-lg border border-border/60 bg-muted/20">Observe</span>
@@ -274,6 +283,8 @@ export default function Home() {
               <span className="px-3 py-1.5 rounded-lg border border-border/60 bg-muted/20">Measure</span>
               <span>→</span>
               <span className="px-3 py-1.5 rounded-lg border border-border/60 bg-muted/20">Learn</span>
+              <span>→</span>
+              <span className="px-3 py-1.5 rounded-lg border border-border/60 bg-muted/20">Approve</span>
             </div>
           </div>
         </section>
