@@ -12,6 +12,11 @@ import {
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
 import { ensureOwnerId } from '@/lib/owner';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
+import {
+  findUserByReferralCode,
+  getSessionUser,
+  normalizeReferralCode,
+} from '@/lib/auth';
 
 type RepoInfo = Awaited<ReturnType<typeof gatherRepoIntelligence>>['repoInfo'];
 
@@ -23,6 +28,7 @@ export async function POST(request: NextRequest) {
       description?: unknown;
       input?: unknown;
       ref?: unknown;
+      code?: unknown;
     }>(request);
     await initDB();
 
@@ -55,6 +61,11 @@ export async function POST(request: NextRequest) {
     // a founder never sees a sign-up form before they have seen the product.
     const { ownerId, setOn } = ensureOwnerId(request);
 
+    // If the founder is signed in, the project is also attached to their
+    // account so their dashboard can list it later. Optional: an anonymous
+    // run keeps working exactly as it did.
+    const sessionUser = await getSessionUser(request);
+
     /**
      * Records that this project was started by someone who arrived through a
      * generated page. Best-effort: a stale or forged ref must never stop a
@@ -76,6 +87,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    /**
+     * Records an account-level referral claim when a signed-in founder starts
+     * a project after arriving through a ?code= link. Best-effort, and
+     * idempotent: the unique pair makes a repeat claim a no-op.
+     */
+    async function recordCodeClaim() {
+      const codeRaw = readString(body.code, 'code', { required: false, max: 32 });
+      if (!codeRaw || !sessionUser) return;
+      try {
+        const code = normalizeReferralCode(codeRaw);
+        if (!code) return;
+        const referrer = await findUserByReferralCode(code);
+        if (!referrer || referrer.id === sessionUser.id) return;
+        await db`
+          INSERT INTO referral_claims (id, referrer_user_id, claimer_user_id, claimed_at)
+          VALUES (${crypto.randomUUID()}, ${referrer.id}, ${sessionUser.id}, NOW())
+          ON CONFLICT (referrer_user_id, claimer_user_id) DO NOTHING
+        `;
+      } catch (err) {
+        console.error('[ANALYZE] Referral code claim not recorded:', err);
+      }
+    }
+
     let name: string;
     let repoUrlValue: string | null = null;
     let productUrlValue: string | null = null;
@@ -93,8 +127,9 @@ export async function POST(request: NextRequest) {
       name = parsed.repo;
       repoUrlValue = raw;
 
-      await db`INSERT INTO projects (id, name, repo_url, owner_id, created_at) VALUES (${projectId}, ${name}, ${repoUrlValue}, ${ownerId}, NOW())`;
+      await db`INSERT INTO projects (id, name, repo_url, owner_id, user_id, created_at) VALUES (${projectId}, ${name}, ${repoUrlValue}, ${ownerId}, ${sessionUser?.id ?? null}, NOW())`;
       await recordReferral();
+      await recordCodeClaim();
 
       const intelligence = await gatherRepoIntelligence(parsed.owner, parsed.repo);
       analysis = await analyzeRepository(intelligence);
@@ -123,8 +158,9 @@ export async function POST(request: NextRequest) {
       name = new URL(absolute).hostname.replace(/^www\./, '');
       productUrlValue = absolute;
 
-      await db`INSERT INTO projects (id, name, product_url, owner_id, created_at) VALUES (${projectId}, ${name}, ${productUrlValue}, ${ownerId}, NOW())`;
+      await db`INSERT INTO projects (id, name, product_url, owner_id, user_id, created_at) VALUES (${projectId}, ${name}, ${productUrlValue}, ${ownerId}, ${sessionUser?.id ?? null}, NOW())`;
       await recordReferral();
+      await recordCodeClaim();
 
       analysis = await analyzeProductUrl(absolute);
     } else {
@@ -137,8 +173,9 @@ export async function POST(request: NextRequest) {
       analysis = await analyzeDescription(raw);
       name = analysis.product_name || 'Your product';
 
-      await db`INSERT INTO projects (id, name, owner_id, created_at) VALUES (${projectId}, ${name}, ${ownerId}, NOW())`;
+      await db`INSERT INTO projects (id, name, owner_id, user_id, created_at) VALUES (${projectId}, ${name}, ${ownerId}, ${sessionUser?.id ?? null}, NOW())`;
       await recordReferral();
+      await recordCodeClaim();
     }
 
     await db`INSERT INTO product_analyses (id, project_id, analysis_json, created_at) VALUES (${crypto.randomUUID()}, ${projectId}, ${JSON.stringify(analysis)}, NOW())`;

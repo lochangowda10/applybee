@@ -122,6 +122,49 @@ function ddl(): unknown[] {
     `,
     sqlQuery`CREATE UNIQUE INDEX IF NOT EXISTS idx_intents_email_plan ON purchase_intents (email, plan)`,
     /**
+     * Email accounts for the magic-link auth layer. One row per address; the
+     * referral_code is what a founder shares to credit their referrals.
+     */
+    sqlQuery`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        referral_code TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `,
+    /**
+     * Single-use magic links. Only the SHA-256 hash of the token is stored, so
+     * a leaked copy of this table cannot be replayed into a session. See
+     * lib/auth.ts for the consume path.
+     */
+    sqlQuery`
+      CREATE TABLE IF NOT EXISTS auth_tokens (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        token_hash TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `,
+    /**
+     * Account-level referral claims. Distinct from the passive `referrals`
+     * table: that one records which generated page a project arrived through,
+     * this one records a person explicitly claiming another person's referral
+     * code. The unique pair keeps a claim idempotent, so two founders cannot
+     * both take credit for the same invitation.
+     */
+    sqlQuery`
+      CREATE TABLE IF NOT EXISTS referral_claims (
+        id TEXT PRIMARY KEY,
+        referrer_user_id TEXT NOT NULL REFERENCES users(id),
+        claimer_user_id TEXT NOT NULL REFERENCES users(id),
+        claimed_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (referrer_user_id, claimer_user_id)
+      )
+    `,
+    /**
      * Fixed-window rate-limit buckets. One row per (key, window) rather than
      * one row per hit, so the table stays small and the check stays a single
      * upsert. See lib/rate-limit.ts for the fail-open rationale.
@@ -142,6 +185,13 @@ function ddl(): unknown[] {
      */
     sqlQuery`ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id TEXT`,
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects (owner_id)`,
+    // Projects may now be attached to an account, so a founder's dashboard can
+    // list everything they created across browsers.
+    sqlQuery`ALTER TABLE projects ADD COLUMN IF NOT EXISTS user_id TEXT`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_projects_user ON projects (user_id)`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_tokens_user ON auth_tokens (user_id)`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_claims_referrer ON referral_claims (referrer_user_id)`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_claims_claimer ON referral_claims (claimer_user_id)`,
     // Indexes on every foreign key the read paths filter by. Without these the
     // dashboard scans the whole events table on each load.
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_analytics_experiment ON analytics_events (experiment_id)`,

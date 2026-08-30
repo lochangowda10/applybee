@@ -6,7 +6,6 @@ import { ArrowRight, GitBranch, Globe, Zap, BarChart3, Repeat, Sparkles, Check }
 import { humanizeError, safeJson, type FriendlyError } from "@/lib/errors";
 import { ProgressStatus, ErrorNotice } from "@/components/progress-status";
 import { PurchaseIntent } from "@/components/purchase-intent";
-
 /** The marker never changes mid-visit, so there is nothing to subscribe to. */
 function subscribeToReferrer(): () => void {
   return () => {};
@@ -23,10 +22,30 @@ function readReferrer(): string | null {
   }
 }
 
+/** Same contract for the account-level invite code, normalized to the form a
+ *  code is claimed in (digits and letters only, uppercase). */
+function subscribeToCode(): () => void {
+  return () => {};
+}
+
+function readCode(): string | null {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("code");
+    if (fromUrl) {
+      const normalized = fromUrl.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+      if (normalized) return normalized;
+    }
+    return sessionStorage.getItem("ll_code");
+  } catch {
+    return null;
+  }
+}
+
 export default function Home() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<FriendlyError | null>(null);
+  const [me, setMe] = useState<{ email: string } | null>(null);
   const router = useRouter();
 
   // The referral marker lives in the URL and sessionStorage — an external
@@ -36,6 +55,13 @@ export default function Home() {
   const referrer = useSyncExternalStore(
     subscribeToReferrer,
     readReferrer,
+    () => null
+  );
+
+  // The account-level invite code (?code=), read the same way.
+  const inviteCode = useSyncExternalStore(
+    subscribeToCode,
+    readCode,
     () => null
   );
 
@@ -51,6 +77,30 @@ export default function Home() {
     }
   }, []);
 
+  // Persist ?code= the same way. Also an external-system write, no setState.
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("code");
+    if (!fromUrl) return;
+    const normalized = fromUrl.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    if (!normalized) return;
+    try {
+      sessionStorage.setItem("ll_code", normalized);
+    } catch {
+      // Storage unavailable (private mode); the URL value still works.
+    }
+  }, []);
+
+  // The nav shows an account entry when a session exists. Best-effort: a
+  // failed fetch just leaves the "Sign in" link in place.
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.user) setMe(data.user);
+      })
+      .catch(() => {});
+  }, []);
+
   const runAnalysis = async () => {
     if (!url.trim()) return;
 
@@ -63,6 +113,7 @@ export default function Home() {
       // reached new URL() and threw.
       const body: Record<string, string> = { input: url };
       if (referrer) body.ref = referrer;
+      if (inviteCode) body.code = inviteCode;
 
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -109,8 +160,16 @@ export default function Home() {
             </div>
             <span className="text-sm font-semibold tracking-tight">LaunchLoop</span>
           </div>
-          <div className="text-xs text-muted-foreground">
-            THE HIVE / ApplyBee AI Hackathon 2026
+          <div className="flex items-center gap-4">
+            <div className="hidden text-xs text-muted-foreground sm:block">
+              THE HIVE / ApplyBee AI Hackathon 2026
+            </div>
+            <a
+              href="/account"
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {me ? "Account" : "Sign in"}
+            </a>
           </div>
         </div>
       </nav>
@@ -208,6 +267,18 @@ export default function Home() {
               <p className="mt-2 text-xs text-muted-foreground/60">
                 You arrived from a page LaunchLoop wrote. We will credit it.
               </p>
+            )}
+            {inviteCode && (
+              <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-accent/25 bg-accent/5 px-4 py-3 text-xs text-muted-foreground">
+                <Sparkles className="h-3.5 w-3.5 text-accent" />
+                A LaunchLoop founder invited you.{" "}
+                <a
+                  href={`/referrals/claim?code=${inviteCode}`}
+                  className="text-accent underline underline-offset-4 transition-colors hover:text-accent/80"
+                >
+                  Claim the referral
+                </a>
+              </div>
             )}
           </div>
         </section>

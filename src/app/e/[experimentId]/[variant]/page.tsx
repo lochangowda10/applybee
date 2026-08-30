@@ -31,6 +31,8 @@ interface VariantData {
   landingContent: LandingContent;
   /** Where the call to action sends people. Null when nothing was deployed. */
   destination?: string | null;
+  /** The project owner's referral code, for the account-level footer link. */
+  referralCode?: string | null;
 }
 
 /**
@@ -527,12 +529,16 @@ export default function ExperimentPage({
 
       {/* Footer — carries referral attribution. Every generated page is a
           distribution surface: the ref identifies the exact variant a new
-          visitor arrived through, so the chain can be reconstructed later. */}
+          visitor arrived through, so the chain can be reconstructed later. The
+          code identifies the founder's account, so a signed-in visitor can
+          claim the referral. */}
       <footer className="py-6 px-6 border-t border-border/50">
         <div className="text-center text-xs text-muted-foreground/40">
           This page was written and deployed by{" "}
           <a
-            href={`/?ref=${variantData.id}`}
+            href={`/?ref=${variantData.id}${
+              variantData.referralCode ? `&code=${variantData.referralCode}` : ""
+            }`}
             className="underline underline-offset-4 transition-colors hover:text-muted-foreground"
           >
             LaunchLoop AI

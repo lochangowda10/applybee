@@ -30,12 +30,14 @@ export async function GET(
       landing_content_json: string;
       product_url: string | null;
       repo_url: string | null;
+      referral_code: string | null;
     }>`
       SELECT v.id, v.name, v.positioning_json, v.landing_content_json,
-             p.product_url, p.repo_url
+             p.product_url, p.repo_url, u.referral_code
       FROM variants v
       JOIN experiments e ON e.id = v.experiment_id
       JOIN projects p ON p.id = e.project_id
+      LEFT JOIN users u ON u.id = p.user_id
       WHERE v.experiment_id = ${experimentId} AND v.name = ${variantName}
     `;
 
@@ -55,6 +57,9 @@ export async function GET(
         // founder only described the product — there is nothing to link to,
         // and inventing a destination would be worse than not having one.
         destination: variant.product_url || variant.repo_url || null,
+        // The project owner's referral code, so the page footer can carry an
+        // account-level referral link alongside the passive variant marker.
+        referralCode: variant.referral_code ?? null,
       },
     });
   } catch (error: unknown) {

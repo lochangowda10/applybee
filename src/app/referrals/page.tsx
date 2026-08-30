@@ -78,6 +78,20 @@ export default async function ReferralsPage() {
             their own, that hop is recorded here — so distribution is something
             the product can show, not something it claims.
           </p>
+          <div className="mt-7 flex flex-wrap items-center gap-5 text-xs">
+            <a
+              href="/referrals/claim"
+              className="rounded-lg bg-neutral-100 px-4 py-2 font-medium text-neutral-950 transition-opacity hover:opacity-80"
+            >
+              Claim a referral code
+            </a>
+            <a
+              href="/account"
+              className="text-neutral-400 underline underline-offset-4 transition-colors hover:text-neutral-200"
+            >
+              My referrals →
+            </a>
+          </div>
         </header>
 
         <section className="py-10">
