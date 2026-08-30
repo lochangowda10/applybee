@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, GitBranch, Globe, Zap, BarChart3, Repeat, Sparkles, Check } from "lucide-react";
 import { humanizeError, safeJson, type FriendlyError } from "@/lib/errors";
 import { ProgressStatus, ErrorNotice } from "@/components/progress-status";
+import { PurchaseIntent } from "@/components/purchase-intent";
 
 /** The marker never changes mid-visit, so there is nothing to subscribe to. */
 function subscribeToReferrer(): () => void {
@@ -362,6 +363,8 @@ export default function Home() {
                 </div>
               ))}
             </div>
+
+            <PurchaseIntent />
 
             {/* Unit economics — every figure here is measured, not modelled. */}
             <div className="mt-8 rounded-xl border border-border/60 p-6">

@@ -105,6 +105,7 @@ export default function ProjectPage() {
 
   // Analytics
   const [analytics, setAnalytics] = useState<AnalyticsData[]>([]);
+  const [lastSync, setLastSync] = useState<number | null>(null);
 
   // Growth intelligence
   const [growthAnalysis, setGrowthAnalysis] = useState<GrowthAnalysis | null>(null);
@@ -274,10 +275,43 @@ export default function ProjectPage() {
       const res = await fetch(`/api/experiments/${experimentId}/events`);
       const data = await safeJson<{ analytics?: AnalyticsData[] }>(res);
       setAnalytics(data.analytics || []);
+      setLastSync(Date.now());
     } catch (err) {
       console.error(err);
     }
   };
+
+  /**
+   * The dashboard polls while it is open.
+   *
+   * The whole point of the product is that a stranger's phone changes what the
+   * founder sees. If watching that happen requires reaching over and clicking
+   * Refresh, the connection between the two is something you have to assert
+   * rather than something the room watches happen.
+   */
+  useEffect(() => {
+    if (step !== "dashboard" || !experimentId) return;
+    let cancelled = false;
+
+    const tick = async () => {
+      if (cancelled || document.hidden) return;
+      try {
+        const res = await fetch(`/api/experiments/${experimentId}/events`);
+        const data = await safeJson<{ analytics?: AnalyticsData[] }>(res);
+        if (cancelled) return;
+        setAnalytics(data.analytics || []);
+        setLastSync(Date.now());
+      } catch {
+        // A dropped poll is not worth surfacing; the next one is 4s away.
+      }
+    };
+
+    const id = setInterval(tick, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [step, experimentId]);
 
   // Run growth intelligence
   const runGrowthAnalysis = async () => {
@@ -810,12 +844,17 @@ export default function ProjectPage() {
               <span className="text-sm font-semibold tracking-tight">LaunchLoop</span>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-xs text-muted-foreground">Step 4 of 5 — Growth Dashboard</span>
+              <span className="hidden sm:inline text-xs text-muted-foreground">Step 4 of 5 — Growth Dashboard</span>
               <button
                 onClick={loadAnalytics}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                title={lastSync ? `Last updated ${new Date(lastSync).toLocaleTimeString()}` : "Updating…"}
+                className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                Refresh
+                <span className="relative flex w-2 h-2">
+                  <span className="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-60 animate-ping" />
+                  <span className="relative inline-flex w-2 h-2 rounded-full bg-emerald-400" />
+                </span>
+                Live
               </button>
             </div>
           </div>

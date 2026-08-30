@@ -102,6 +102,25 @@ function ddl(): unknown[] {
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `,
+    /**
+     * Recorded intent to buy a paid plan. Deliberately NOT a payment: nobody
+     * is charged, and every surface that shows this number says so. It exists
+     * because "would anyone pay for this" is a question worth answering with
+     * a count of real people rather than with an argument.
+     *
+     * The unique index makes a repeated submission idempotent, so the number
+     * cannot be inflated by someone submitting the same address twice.
+     */
+    sqlQuery`
+      CREATE TABLE IF NOT EXISTS purchase_intents (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        plan TEXT NOT NULL,
+        note TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `,
+    sqlQuery`CREATE UNIQUE INDEX IF NOT EXISTS idx_intents_email_plan ON purchase_intents (email, plan)`,
     // Indexes on every foreign key the read paths filter by. Without these the
     // dashboard scans the whole events table on each load.
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_analytics_experiment ON analytics_events (experiment_id)`,
