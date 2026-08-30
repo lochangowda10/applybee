@@ -136,13 +136,74 @@ export default function ProjectPage() {
         setStep("analysis");
         return;
       }
-      // Fallback
+      // No session cache: this is a refresh, a new tab, or a shared link.
+      // Everything is already in the database, so resume from there rather
+      // than stranding the user on an animation that never completes.
       if (cancelled) return;
       setStep("analyzing");
-      for (let i = 0; i <= ANALYSIS_STEPS.length; i++) {
-        await new Promise(r => setTimeout(r, 600));
+      try {
+        const res = await fetch(`/api/projects/${projectId}`);
+        const data = await safeJson<{
+          analysis?: ProductAnalysis;
+          context?: {
+            target_user: string | null;
+            alternative: string | null;
+            differentiation: string | null;
+            desired_action: string | null;
+          } | null;
+          experimentId?: string | null;
+          variants?: VariantData[];
+          error?: string;
+        }>(res);
+
         if (cancelled) return;
-        setAnalysisProgress(i);
+        if (!res.ok || !data.analysis) {
+          throw new Error(data.error || `Could not load project (${res.status})`);
+        }
+
+        setAnalysis(data.analysis);
+        setEditingAnalysis(data.analysis);
+
+        // Restore the founder's earlier answers so they are not asked twice.
+        if (data.context) {
+          setTargetUser(data.context.target_user ?? "");
+          setAlternative(data.context.alternative ?? "");
+          setDifferentiation(data.context.differentiation ?? "");
+          setDesiredAction(data.context.desired_action ?? "");
+        }
+
+        setAnalysisProgress(ANALYSIS_STEPS.length);
+
+        // If variants already exist, drop the user back into the live
+        // experiment with its QR codes rather than the start of the flow.
+        if (data.experimentId && data.variants && data.variants.length > 0) {
+          setExperimentId(data.experimentId);
+          setVariants(data.variants);
+
+          const baseUrl =
+            process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+          const qrMap: Record<string, string> = {};
+          qrMap["primary"] = await QRCode.toDataURL(
+            `${baseUrl}/x/${data.experimentId}`,
+            { width: 160, margin: 1 }
+          );
+          for (const v of data.variants) {
+            qrMap[v.name] = await QRCode.toDataURL(
+              `${baseUrl}/e/${data.experimentId}/${v.name}`,
+              { width: 160, margin: 1 }
+            );
+          }
+          if (cancelled) return;
+          setQrCodes(qrMap);
+          setStep("live");
+          return;
+        }
+
+        setStep("analysis");
+      } catch (err) {
+        if (cancelled) return;
+        setFailure(humanizeError(err));
+        setStep("analysis");
       }
     }
     load();
