@@ -13,6 +13,17 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const MODEL = process.env.AI_MODEL || 'gpt-5-nano';
 
+/** Hard ceiling for a single AI call, including retries. Overridable via env. */
+export const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS) || 20_000;
+
+/** Distinguishes a timeout from a provider error so callers can fall back. */
+export class AITimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AITimeoutError';
+  }
+}
+
 /**
  * Normalize the configured base URL to the root the Chat Completions path hangs
  * off of. People routinely paste a full endpoint into OPENAI_BASE_URL, which
@@ -65,11 +76,38 @@ export async function chatCompletion(
     },
   };
 
+  /**
+   * Hard ceiling on any single AI request. Without this a hung provider
+   * connection blocks the route until the platform kills it — indistinguishable
+   * from a crash to anyone watching. Budget is shared across the whole call
+   * including parameter-repair retries, so a pathological provider cannot
+   * multiply the wait.
+   */
+  const deadline = Date.now() + AI_TIMEOUT_MS;
+
   async function makeRequest(body: Record<string, unknown>): Promise<Response> {
-    return fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-      ...fetchOpts,
-      body: JSON.stringify(body),
-    });
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new AITimeoutError(`AI request exceeded ${AI_TIMEOUT_MS / 1000}s.`);
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining);
+    try {
+      return await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+        ...fetchOpts,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new AITimeoutError(
+          `AI request timed out after ${AI_TIMEOUT_MS / 1000}s.`
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   const isFireworks = OPENAI_BASE_URL.includes('fireworks');

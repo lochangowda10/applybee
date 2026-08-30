@@ -4,6 +4,27 @@
  */
 
 import { chatJSON, chatJSONArray, isAIConfigured } from './provider';
+
+/**
+ * Runs an AI call, falling back to deterministic generated content if it times
+ * out, errors, or returns unusable JSON.
+ *
+ * The demo must always produce a page. A model failure should cost quality,
+ * never a blank screen, so every AI path has a non-AI path behind it.
+ */
+async function withFallback<T>(
+  attempt: () => Promise<T>,
+  fallback: () => T,
+  label: string
+): Promise<T> {
+  try {
+    return await attempt();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[AI] ${label} failed, using fallback content: ${message}`);
+    return fallback();
+  }
+}
 import type { RepoIntelligence } from '../github/service';
 
 export interface ProductAnalysis {
@@ -124,12 +145,17 @@ Based on this evidence, analyze the product and return JSON with this exact sche
   "confidence": number between 0 and 1
 }`;
 
-  return chatJSON<ProductAnalysis>(
-    [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    { temperature: 0.2, maxTokens: 2000 }
+  return withFallback(
+    () =>
+      chatJSON<ProductAnalysis>(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        { temperature: 0.2, maxTokens: 2000 }
+      ),
+    () => generateMockAnalysis(intelligence),
+    'analyzeRepository'
   );
 }
 
@@ -186,12 +212,17 @@ Return a JSON array with exactly 2 positioning hypotheses matching this schema:
   "color_scheme": { "primary": "#hex", "secondary": "#hex", "accent": "#hex" }
 }]`;
 
-  const hypotheses = await chatJSONArray<PositioningHypothesis>(
-    [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    { temperature: 0.7, maxTokens: 3000 }
+  const hypotheses = await withFallback(
+    () =>
+      chatJSONArray<PositioningHypothesis>(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        { temperature: 0.7, maxTokens: 3000 }
+      ),
+    () => generateMockPositioning(analysis, founderContext),
+    'generatePositioning'
   );
 
   // The downstream loop and the /e/[experimentId]/[variant] route both assume
@@ -271,12 +302,17 @@ Return JSON with this exact structure:
   }
 }`;
 
-  return chatJSON<LandingContent>(
-    [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    { temperature: 0.6, maxTokens: 3000 }
+  return withFallback(
+    () =>
+      chatJSON<LandingContent>(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        { temperature: 0.6, maxTokens: 3000 }
+      ),
+    () => generateMockLandingContent(hypothesis, analysis),
+    'generateLandingContent'
   );
 }
 
@@ -339,12 +375,17 @@ Return JSON:
   "next_hypothesis": "string - a new positioning hypothesis based on learning"
 }`;
 
-  return chatJSON<GrowthAnalysis>(
-    [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    { temperature: 0.5, maxTokens: 2000 }
+  return withFallback(
+    () =>
+      chatJSON<GrowthAnalysis>(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        { temperature: 0.5, maxTokens: 2000 }
+      ),
+    () => generateMockGrowthAnalysis(variantA, variantB),
+    'analyzeGrowthResults'
   );
 }
 
