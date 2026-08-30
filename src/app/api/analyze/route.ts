@@ -10,13 +10,35 @@ export async function POST(request: NextRequest) {
     const body = await request.clone().json();
     await initDB();
 
-    const { repoUrl, productUrl } = body;
+    const { repoUrl, productUrl, ref } = body;
 
     if (!repoUrl && !productUrl) {
       return NextResponse.json({ error: 'Please provide a GitHub repository URL or product URL' }, { status: 400 });
     }
 
     const projectId = crypto.randomUUID();
+
+    /**
+     * Records that this project was started by someone who arrived through a
+     * generated page. Best-effort: a bad or stale ref must never stop a
+     * founder from analyzing their product, so failures are logged and
+     * swallowed rather than surfaced.
+     */
+    async function recordReferral() {
+      if (!ref || typeof ref !== 'string') return;
+      try {
+        const rows = await db<{ id: string; experiment_id: string }>`
+          SELECT id, experiment_id FROM variants WHERE id = ${ref}
+        `;
+        if (rows.length === 0) return;
+        await db`
+          INSERT INTO referrals (id, referrer_experiment_id, referrer_variant_id, referred_project_id, created_at)
+          VALUES (${crypto.randomUUID()}, ${rows[0].experiment_id}, ${rows[0].id}, ${projectId}, NOW())
+        `;
+      } catch (err) {
+        console.error('[ANALYZE] Referral not recorded:', err);
+      }
+    }
 
     if (repoUrl) {
       const parsed = parseGitHubUrl(repoUrl);
@@ -25,6 +47,7 @@ export async function POST(request: NextRequest) {
       }
 
       await db`INSERT INTO projects (id, name, repo_url, created_at) VALUES (${projectId}, ${parsed.repo}, ${repoUrl}, NOW())`;
+      await recordReferral();
 
       const intelligence = await gatherRepoIntelligence(parsed.owner, parsed.repo);
       const analysis = await analyzeRepository(intelligence);
@@ -35,6 +58,7 @@ export async function POST(request: NextRequest) {
     } else {
       const hostname = new URL(productUrl).hostname;
       await db`INSERT INTO projects (id, name, product_url, created_at) VALUES (${projectId}, ${hostname}, ${productUrl}, NOW())`;
+      await recordReferral();
 
       const analysis = {
         product_name: hostname,

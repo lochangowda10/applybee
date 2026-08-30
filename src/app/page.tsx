@@ -1,16 +1,54 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, GitBranch, Globe, Zap, BarChart3, Repeat, Sparkles, Check } from "lucide-react";
 import { humanizeError, safeJson, type FriendlyError } from "@/lib/errors";
 import { ProgressStatus, ErrorNotice } from "@/components/progress-status";
+
+/** The marker never changes mid-visit, so there is nothing to subscribe to. */
+function subscribeToReferrer(): () => void {
+  return () => {};
+}
+
+/** URL first, then the persisted copy. Returns a stable string across renders. */
+function readReferrer(): string | null {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("ref");
+    if (fromUrl) return fromUrl;
+    return sessionStorage.getItem("ll_ref");
+  } catch {
+    return null;
+  }
+}
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<FriendlyError | null>(null);
   const router = useRouter();
+
+  // The referral marker lives in the URL and sessionStorage — an external
+  // store — so it is read through useSyncExternalStore rather than copied into
+  // React state inside an effect. It never changes during a visit, so the
+  // subscribe function has nothing to listen for.
+  const referrer = useSyncExternalStore(
+    subscribeToReferrer,
+    readReferrer,
+    () => null
+  );
+
+  // Persist ?ref= so it survives the visitor navigating on before they start
+  // a project. This updates an external system and sets no state.
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("ref");
+    if (!fromUrl) return;
+    try {
+      sessionStorage.setItem("ll_ref", fromUrl);
+    } catch {
+      // Storage unavailable (private mode); the URL value still works.
+    }
+  }, []);
 
   const runAnalysis = async () => {
     if (!url.trim()) return;
@@ -20,7 +58,10 @@ export default function Home() {
 
     try {
       const isGitHub = url.includes("github.com");
-      const body = isGitHub ? { repoUrl: url } : { productUrl: url };
+      const body: Record<string, string> = isGitHub
+        ? { repoUrl: url }
+        : { productUrl: url };
+      if (referrer) body.ref = referrer;
 
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -154,6 +195,11 @@ export default function Home() {
             <p className="text-xs text-muted-foreground/60 mt-4">
               Supports public GitHub repositories and deployed product URLs
             </p>
+            {referrer && (
+              <p className="mt-2 text-xs text-muted-foreground/60">
+                You arrived from a page LaunchLoop wrote. We will credit it.
+              </p>
+            )}
           </div>
         </section>
 

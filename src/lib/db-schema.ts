@@ -93,12 +93,23 @@ function ddl(): unknown[] {
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `,
+    sqlQuery`
+      CREATE TABLE IF NOT EXISTS referrals (
+        id TEXT PRIMARY KEY,
+        referrer_experiment_id TEXT REFERENCES experiments(id),
+        referrer_variant_id TEXT REFERENCES variants(id),
+        referred_project_id TEXT NOT NULL REFERENCES projects(id),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `,
     // Indexes on every foreign key the read paths filter by. Without these the
     // dashboard scans the whole events table on each load.
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_analytics_experiment ON analytics_events (experiment_id)`,
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_feedback_experiment ON feedback (experiment_id)`,
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_variants_experiment ON variants (experiment_id)`,
     sqlQuery`CREATE INDEX IF NOT EXISTS idx_analyses_project ON product_analyses (project_id)`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_referrals_variant ON referrals (referrer_variant_id)`,
+    sqlQuery`CREATE INDEX IF NOT EXISTS idx_referrals_project ON referrals (referred_project_id)`,
   ];
 }
 

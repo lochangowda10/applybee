@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowRight, ArrowLeft, Check, Copy, ExternalLink, BarChart3, Lightbulb, Users, MessageSquare, TrendingUp, Loader2, Zap, Globe } from "lucide-react";
+import { ArrowRight, ArrowLeft, Check, Copy, ExternalLink, BarChart3, Lightbulb, Users, MessageSquare, TrendingUp, Loader2, Zap, Globe, Download } from "lucide-react";
 import QRCode from "qrcode";
 import { humanizeError, safeJson, type FriendlyError } from "@/lib/errors";
 import { ProgressStatus, ErrorNotice } from "@/components/progress-status";
@@ -299,6 +299,21 @@ export default function ProjectPage() {
     } finally {
       setLearningLoading(false);
     }
+  };
+
+  /**
+   * Saves a generated QR as a PNG. The codes are already produced as data
+   * URLs by the qrcode library, so this needs no round trip — it just names
+   * the file something a founder can find again after the event.
+   */
+  const downloadQr = (dataUrl: string, label: string) => {
+    if (!dataUrl) return;
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = `launchloop-${label}-qr.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   // Copy URL
@@ -694,6 +709,15 @@ export default function ProjectPage() {
                   )}
                 </button>
               </div>
+              {qrCodes['primary'] && (
+                <button
+                  onClick={() => downloadQr(qrCodes['primary'], 'experiment')}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted/50"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download PNG
+                </button>
+              )}
               <p className="text-xs text-muted-foreground/60">Visitors are randomly assigned to Variant A or B</p>
             </div>
           </div>
@@ -724,6 +748,33 @@ export default function ProjectPage() {
                         <ExternalLink className="w-4 h-4 text-muted-foreground" />
                       </a>
                     </div>
+
+                    {qrCodes[v.name] && (
+                      <div className="mt-4 flex items-center gap-4 border-t border-border/50 pt-4">
+                        <div className="rounded-lg bg-white p-2">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={qrCodes[v.name]}
+                            alt={`QR code for variant ${v.name.toUpperCase()}`}
+                            width={84}
+                            height={84}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs text-muted-foreground">
+                            Sends every scan straight to variant{" "}
+                            {v.name.toUpperCase()}, bypassing the split.
+                          </p>
+                          <button
+                            onClick={() => downloadQr(qrCodes[v.name], `variant-${v.name}`)}
+                            className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted/50"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Download PNG
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );

@@ -328,10 +328,19 @@ export default function ExperimentPage({
         </div>
       </section>
 
-      {/* Footer */}
+      {/* Footer — carries referral attribution. Every generated page is a
+          distribution surface: the ref identifies the exact variant a new
+          visitor arrived through, so the chain can be reconstructed later. */}
       <footer className="py-6 px-6 border-t border-border/50">
         <div className="text-center text-xs text-muted-foreground/40">
-          Powered by LaunchLoop AI — This is an experiment
+          This page was written and deployed by{" "}
+          <a
+            href={`/?ref=${variantData.id}`}
+            className="underline underline-offset-4 transition-colors hover:text-muted-foreground"
+          >
+            LaunchLoop AI
+          </a>
+          {" "}— it is a live positioning experiment.
         </div>
       </footer>
     </div>
