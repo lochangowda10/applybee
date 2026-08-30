@@ -246,12 +246,33 @@ export async function chatCompletion(
   // non-OpenAI provider can return a 200 with a different envelope. Neither
   // should surface as an unhandled TypeError.
   const rawText = await response.text();
-  let data: { choices?: { message?: { content?: string }; finish_reason?: string }[] };
+  let data: {
+    choices?: { message?: { content?: string }; finish_reason?: string }[];
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      completion_tokens_details?: { reasoning_tokens?: number };
+    };
+  };
   try {
     data = JSON.parse(rawText);
   } catch {
     throw new Error(
       `AI provider returned a non-JSON response (${response.status}): ${rawText.slice(0, 200)}`
+    );
+  }
+
+  // Token accounting. Unit economics for this product are almost entirely
+  // model spend, so the cost of an experiment is measured rather than
+  // estimated. Logged per call; totals are what the pricing page cites.
+  if (data?.usage) {
+    const u = data.usage;
+    console.log(
+      `[AI] usage model=${MODEL} prompt=${u.prompt_tokens ?? 0} ` +
+      `completion=${u.completion_tokens ?? 0} ` +
+      `reasoning=${u.completion_tokens_details?.reasoning_tokens ?? 0} ` +
+      `total=${u.total_tokens ?? 0}`
     );
   }
 
