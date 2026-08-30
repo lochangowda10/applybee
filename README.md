@@ -71,24 +71,31 @@ Six inputs across all three types, run end to end with no human intervention,
 against a production build. Every case runs the **entire loop**: analyze,
 generate two positions, deploy both, record a visitor and a written response,
 read the results, propose V3 as a diff, approve it, and deploy the next
-experiment. Reproduce with `node scripts/e2e.mjs`; raw output in
-[`scripts/e2e-results.txt`](scripts/e2e-results.txt).
+experiment. Reproduce with `QUOTA_DISABLED=1 npm start` and then `node scripts/e2e.mjs
+http://localhost:3000`; raw output in
+[`scripts/e2e-results.txt`](scripts/e2e-results.txt). The tier has to be
+lifted for this: six runs from one address is exactly what the free tier is
+built to refuse, so the harness would otherwise block itself after the first
+case. The tier has its own test, `node scripts/quota-check.mjs`, which asserts
+the refusal instead of avoiding it.
 
 | Input | Type | Analyze | Position + deploy | Results | V3 diff | Approve + ship | Total |
 |---|---|---|---|---|---|---|---|
-| `hanamaraddi9620adi/swinglens` | repo | 9.7s | 25.4s | 9.3s | 8.0s · 5 changes | 19.1s | 75s |
-| `sindresorhus/got` | repo | 8.7s | 22.2s | 7.8s | 7.9s · 6 changes | 22.6s | 73s |
-| `expressjs/express` | repo | 7.0s | 27.4s | 8.7s | 7.0s · 1 change | 19.4s | 74s |
-| `https://vercel.com` | product URL | 8.9s | 26.9s | 10.4s | 9.1s · 5 changes | 18.1s | 77s |
-| `linear.app` | bare domain | 6.6s | 24.4s | 8.6s | 9.7s · 6 changes | 21.2s | 75s |
-| *"a tool that finds which flaky test costs the most hours"* | description | 3.7s | 24.0s | 10.5s | 7.4s · 3 changes | 16.9s | 66s |
+| `hanamaraddi9620adi/swinglens` | repo | 9.1s | 22.1s | 9.9s | 6.2s · 5 changes | 16.4s | 69s |
+| `sindresorhus/got` | repo | 7.8s | 23.0s | 8.6s | 7.1s · 4 changes | 15.8s | 67s |
+| `expressjs/express` | repo | 7.1s | 20.3s | 8.1s | 7.2s · 5 changes | 15.7s | 63s |
+| `https://vercel.com` | product URL | 5.9s | 22.1s | 9.9s | 7.0s · 5 changes | 19.7s | 69s |
+| `linear.app` | bare domain | 6.4s | 20.8s | 6.3s | 7.1s · 4 changes | 14.3s | 60s |
+| *"a tool that finds which flaky test costs the most hours"* | description | 3.9s | 16.5s | 6.3s | 4.9s · 4 changes | 12.8s | 49s |
 
 **6/6 complete (100%)**, each producing two live variant pages, recorded
 visitor events, a reviewable V3 diff, a second deployed experiment, and a
 successful cold-start resume.
 
 The change counts differ per case because the diff is computed, not scripted —
-Express produced one changed field, `got` and Linear produced six. Each case
+`got` and Linear produced four changed fields in this run, SwingLens five. An
+earlier run had Express change a single field and `got` change six; the number
+moves with what visitors actually said, which is the point. Each case
 also asserts the things that could silently rot: that proposing never returns
 as approved, that no listed change has `before === after`, that approval
 creates a *different* experiment, and that a second browser attempting to
@@ -125,7 +132,7 @@ Per-experiment credits — you pay when you learn something, not for an idle sea
 | **Growth** | $20 · ₹1,760 | 50 experiments · $0.40 each |
 
 The free tier is **enforced, not advertised**: `/api/analyze` refuses a
-seventh project the same way it refuses a bad repo URL. The allowance is
+second project in the same week the same way it refuses a bad repo URL. The allowance is
 counted per caller against an HMAC of their address — the address itself is
 never stored — and a blocked caller gets a 429 that names the limit, says
 when it resets, and offers the waitlist when joining would actually lift it.
@@ -183,7 +190,8 @@ src/
 │   │   ├── analyze/                  # repo / product-URL / description → product analysis
 │   │   ├── context/                  # founder's own answers
 │   │   ├── positioning/              # two hypotheses + two landing pages
-│   │   ├── interest/                 # recorded willingness to pay
+│   │   ├── interest/                 # waitlist signup + recorded willingness to pay
+│   │   ├── quota/                    # what this visitor has left on the free tier
 │   │   ├── projects/[projectId]/     # rehydrate a run from the database
 │   │   └── experiments/[experimentId]/
 │   │       ├── events/               # page views, CTA clicks
@@ -208,13 +216,18 @@ src/
 │   ├── api.ts                        # body parsing, validation, safe errors
 │   ├── errors.ts                     # raw failures → human sentences
 │   ├── db.ts                         # Neon Postgres over HTTP
+│   ├── pricing.ts                    # every price, in one place, both currencies
+│   ├── quota.ts                      # the free tier — fail-closed, unlike the limiter
 │   ├── rate-limit.ts                 # fixed-window limiter, fail-open by design
 │   └── db-schema.ts                  # schema init, one transaction
 ├── components/
 │   ├── progress-status.tsx           # honest progress + error presentation
 │   ├── purchase-intent.tsx           # pricing capture + live count
 │   └── ui/                           # shadcn/ui
-└── scripts/e2e.mjs                   # the harness behind the table above
+└── scripts/
+    ├── e2e.mjs                       # the harness behind the table above
+    ├── quota-check.mjs               # asserts the free tier actually refuses
+    └── clean-test-intents.mjs        # clears synthetic signups from the counter
 ```
 
 ---
@@ -276,6 +289,7 @@ work over a missing variable.
 - Sample sizes in a hackathon setting are small. The product says so on every screen rather than implying significance it hasn't earned.
 - Ownership is anonymous and browser-scoped, not account authentication. A project is claimed by whoever created it via a signed httpOnly cookie, and founder-side writes — saving answers, deploying pages, approving V3 — are refused to anyone else. But it is one browser, not an account: clear the cookie and you lose the claim, and there is no way to sign in from a second device. Reading stays deliberately open, since these links are meant to be shared.
 - Rate limiting is per IP, and per IP is not per person. It stops the realistic abuse — one script in a loop farming AI calls or inflating a count — and it does not stop a distributed one rotating addresses. There is no CAPTCHA on the signup or feedback forms yet, so the willingness-to-pay number is protected by a rate limit and a uniqueness constraint, not by proof of a human. Both are the next thing to add, in that order.
+- The free tier counts per address, and an address is not a person. Everyone behind one office or venue router shares a single allowance, which is generous toward abuse and harsh toward a crowded room; `QUOTA_DISABLED` and the three `QUOTA_*` limits exist so the numbers can be moved without a code change. Accounts would fix this properly, and are the same missing piece as the ownership limitation above.
 - V3 is proposed, never auto-deployed — deliberate, but it does mean the loop needs one human step to close.
 - Recorded willingness to pay is intent, not revenue. Nobody has been charged and there is no checkout; the count says so wherever it appears.
 

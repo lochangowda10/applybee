@@ -104,11 +104,20 @@ export async function POST(
     }
     await initDB();
 
-    // The last AI-spending endpoint. Owner-gated below, but the limiter runs
-    // first for the same reason it does on /positioning: a shared project
-    // link should not be a way to burn tokens, and approval also creates a
-    // whole new experiment.
-    const rl = await rateLimit(`v3:${clientIp(request)}`, 30, 3600);
+    /**
+     * The last AI-spending endpoint. Owner-gated below, but the limiter runs
+     * first for the same reason it does on /positioning: a shared project
+     * link should not be a way to burn tokens, and approval also creates a
+     * whole new experiment.
+     *
+     * Twice the ceiling of the others because this route is called twice per
+     * loop — once to propose, once to approve. At 30 it silently capped the
+     * product at fifteen loops an hour while every other endpoint allowed
+     * thirty, so the binding limit was an artefact of how the work is split
+     * across requests rather than a decision anyone made. 60 makes every
+     * ceiling mean the same thing: thirty complete loops per hour.
+     */
+    const rl = await rateLimit(`v3:${clientIp(request)}`, 60, 3600);
     if (rl.limited) return rl.response;
 
     const { experimentId } = await params;

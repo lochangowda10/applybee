@@ -409,10 +409,10 @@ export default function Home() {
                   </p>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold tabular-nums">49s</div>
+                  <div className="text-2xl font-bold tabular-nums">28s</div>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     Median time from pasted link to two deployed pages across
-                    our four-case test run. The manual version of this job — two
+                    our six-case test run. The manual version of this job — two
                     positions, two pages, an A/B split — is most of a working
                     day.
                   </p>

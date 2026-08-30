@@ -1,16 +1,16 @@
-running repo: swinglens … PASS (75.5s)
-running repo: sindresorhus/got … PASS (73.0s)
-running repo: expressjs/express … PASS (73.6s)
-running product url: vercel … PASS (77.1s)
-running product url: bare domain … PASS (74.5s)
-running plain description … PASS (66.4s)
+running repo: swinglens … PASS (68.7s)
+running repo: sindresorhus/got … PASS (67.3s)
+running repo: expressjs/express … PASS (63.3s)
+running product url: vercel … PASS (69.3s)
+running product url: bare domain … PASS (59.8s)
+running plain description … PASS (48.9s)
 
 ──────── task success ────────
-PASS  repo: swinglens          SwingLens | analyze 9.7s, positioning 25.4s, pages 0.2s, visitor 1.1s, learning 9.3s, v3 8.0s/5 changes, guarded 403, v3deploy 19.1s, resume 1.2s
-PASS  repo: sindresorhus/got   got | analyze 8.7s, positioning 22.2s, pages 0.0s, visitor 1.0s, learning 7.8s, v3 7.9s/6 changes, guarded 403, v3deploy 22.6s, resume 1.2s
-PASS  repo: expressjs/express  Express | analyze 7.0s, positioning 27.4s, pages 0.1s, visitor 1.0s, learning 8.7s, v3 7.0s/1 changes, guarded 403, v3deploy 19.4s, resume 1.3s
-PASS  product url: vercel      Agentic Infrastructure - Vercel | analyze 8.9s, positioning 26.9s, pages 0.0s, visitor 0.9s, learning 10.4s, v3 9.1s/5 changes, guarded 403, v3deploy 18.1s, resume 1.2s
-PASS  product url: bare domain Linear | analyze 6.6s, positioning 24.4s, pages 0.0s, visitor 1.0s, learning 8.6s, v3 9.7s/6 changes, guarded 403, v3deploy 21.2s, resume 1.2s
-PASS  plain description        A tool that watches | analyze 3.7s, positioning 24.0s, pages 0.0s, visitor 1.0s, learning 10.5s, v3 7.4s/3 changes, guarded 403, v3deploy 16.9s, resume 1.1s
+PASS  repo: swinglens          SwingLens | analyze 9.1s, positioning 22.1s, pages 0.1s, visitor 1.7s, learning 9.9s, v3 6.2s/5 changes, guarded 403, v3deploy 16.4s, resume 1.2s
+PASS  repo: sindresorhus/got   got | analyze 7.8s, positioning 23.0s, pages 0.0s, visitor 1.8s, learning 8.6s, v3 7.1s/4 changes, guarded 403, v3deploy 15.8s, resume 1.2s
+PASS  repo: expressjs/express  Express | analyze 7.1s, positioning 20.3s, pages 0.1s, visitor 1.7s, learning 8.1s, v3 7.2s/5 changes, guarded 403, v3deploy 15.7s, resume 1.2s
+PASS  product url: vercel      Vercel Agent / Agentic Infrastructure | analyze 5.9s, positioning 22.1s, pages 0.0s, visitor 1.6s, learning 9.9s, v3 7.0s/5 changes, guarded 403, v3deploy 19.7s, resume 1.2s
+PASS  product url: bare domain Linear | analyze 6.4s, positioning 20.8s, pages 0.1s, visitor 1.8s, learning 6.3s, v3 7.1s/4 changes, guarded 403, v3deploy 14.3s, resume 1.2s
+PASS  plain description        Flaky Test Cost Tracker | analyze 3.9s, positioning 16.5s, pages 0.0s, visitor 1.9s, learning 6.3s, v3 4.9s/4 changes, guarded 403, v3deploy 12.8s, resume 1.2s
 
 6/6 cases completed end-to-end (100%)
