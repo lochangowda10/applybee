@@ -122,6 +122,19 @@ function ddl(): unknown[] {
     `,
     sqlQuery`CREATE UNIQUE INDEX IF NOT EXISTS idx_intents_email_plan ON purchase_intents (email, plan)`,
     /**
+     * Fixed-window rate-limit buckets. One row per (key, window) rather than
+     * one row per hit, so the table stays small and the check stays a single
+     * upsert. See lib/rate-limit.ts for the fail-open rationale.
+     */
+    sqlQuery`
+      CREATE TABLE IF NOT EXISTS rate_limits (
+        key TEXT NOT NULL,
+        window_start TIMESTAMPTZ NOT NULL,
+        count INTEGER NOT NULL,
+        PRIMARY KEY (key, window_start)
+      )
+    `,
+    /**
      * Ownership, added after the fact. ALTER ... IF NOT EXISTS keeps this
      * idempotent alongside the CREATEs above, and the column is nullable on
      * purpose: rows that predate ownership stay unclaimed and writable rather

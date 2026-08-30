@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 export async function POST(
   request: NextRequest,
@@ -14,6 +15,11 @@ export async function POST(
     const { experimentId } = await params;
     const variantId = readString(body.variantId, 'variantId', { max: 100 });
     const sanitized = readString(body.text, 'Feedback', { max: 1000 });
+
+    // One written answer per visitor is the design; a handful per minute per
+    // IP is far above human speed and stops scripted feedback stuffing.
+    const rl = await rateLimit(`feedback:${clientIp(request)}`, 10, 60);
+    if (rl.limited) return rl.response;
 
     // Verify the pair exists before inserting: previously a bad id reached the
     // foreign key and surfaced as a 500 rather than an honest 404.

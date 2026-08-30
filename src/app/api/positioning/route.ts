@@ -4,11 +4,17 @@ import { initDB } from '@/lib/init';
 import { generatePositioning, generateLandingContent } from '@/lib/ai/analysis';
 import { ApiError, apiError, parseStoredJson, readJsonBody, readString } from '@/lib/api';
 import { readOwnerId, canModify } from '@/lib/owner';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await readJsonBody<Record<string, unknown>>(request);
     await initDB();
+
+    // Two AI calls per request; owner-gated below, but the limiter runs first
+    // so a leaked project link cannot be used to burn tokens.
+    const rl = await rateLimit(`positioning:${clientIp(request)}`, 30, 3600);
+    if (rl.limited) return rl.response;
 
     const projectId = readString(body.projectId, 'Project ID', { max: 100 });
 

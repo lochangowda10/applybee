@@ -10,6 +10,7 @@ import {
 } from '@/lib/ai/analysis';
 import { ApiError, apiError, parseStoredJson } from '@/lib/api';
 import { readOwnerId, canModify } from '@/lib/owner';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 /**
  * Proposes and deploys V3 — the step that closes the loop.
@@ -102,6 +103,14 @@ export async function POST(
       approve = parsed?.approve === true;
     }
     await initDB();
+
+    // The last AI-spending endpoint. Owner-gated below, but the limiter runs
+    // first for the same reason it does on /positioning: a shared project
+    // link should not be a way to burn tokens, and approval also creates a
+    // whole new experiment.
+    const rl = await rateLimit(`v3:${clientIp(request)}`, 30, 3600);
+    if (rl.limited) return rl.response;
+
     const { experimentId } = await params;
 
     const ctx = await load(experimentId);

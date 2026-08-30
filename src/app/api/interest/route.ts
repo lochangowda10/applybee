@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 /**
  * Recorded willingness to pay.
@@ -34,6 +35,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await readJsonBody<Record<string, unknown>>(request);
     await initDB();
+
+    // The count this endpoint publishes is a GTM signal; throttling signups
+    // per IP keeps a script from manufacturing that signal.
+    const rl = await rateLimit(`interest:${clientIp(request)}`, 5, 60);
+    if (rl.limited) return rl.response;
 
     const email = readString(body.email, 'email', { max: 200 }).toLowerCase();
     const plan = readString(body.plan, 'plan', { max: 20 }).toLowerCase();

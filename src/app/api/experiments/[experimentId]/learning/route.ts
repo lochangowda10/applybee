@@ -3,13 +3,21 @@ import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { analyzeExperimentResults } from '@/lib/ai/analysis';
 import { ApiError, apiError, parseStoredJson } from '@/lib/api';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {
     await initDB();
+
+    // This POST runs an AI call and is intentionally NOT owner-gated (the
+    // dashboard may be opened from a shared link), so the rate limit is the
+    // only thing bounding token spend here.
+    const rl = await rateLimit(`learning:${clientIp(request)}`, 60, 3600);
+    if (rl.limited) return rl.response;
+
     const { experimentId } = await params;
 
     const experiments = await db<{ id: string; project_id: string }>`SELECT id, project_id FROM experiments WHERE id = ${experimentId}`;
@@ -59,7 +67,7 @@ export async function POST(
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ experimentId: string }> }
 ) {
   try {

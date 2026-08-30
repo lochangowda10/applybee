@@ -11,6 +11,7 @@ import {
 } from '@/lib/input/sources';
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
 import { ensureOwnerId } from '@/lib/owner';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 type RepoInfo = Awaited<ReturnType<typeof gatherRepoIntelligence>>['repoInfo'];
 
@@ -24,6 +25,11 @@ export async function POST(request: NextRequest) {
       ref?: unknown;
     }>(request);
     await initDB();
+
+    // AI spend per call — cap scripted farming. Generous enough that a room
+    // of judges sharing one venue NAT never trips it.
+    const rl = await rateLimit(`analyze:${clientIp(request)}`, 30, 3600);
+    if (rl.limited) return rl.response;
 
     // Accept the three declared inputs under any of the field names the client
     // has used, then classify rather than trusting which field it arrived in —

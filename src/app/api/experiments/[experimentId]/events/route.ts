@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { initDB } from '@/lib/init';
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 /** Only the events the product actually records; anything else is rejected. */
 const EVENT_TYPES = new Set(['page_view', 'cta_click']);
@@ -19,6 +20,27 @@ export async function POST(
     const eventType = readString(body.eventType, 'eventType', { max: 40 });
     const sessionId = readString(body.sessionId, 'sessionId', { required: false, max: 100 });
     const metadata = readString(body.metadata, 'metadata', { required: false, max: 2000 });
+
+    /**
+     * Two buckets, because one is not enough here.
+     *
+     * The session bucket is the tight one, and it is what keeps a single
+     * visitor's page from looping. But sessionId comes from the client, so a
+     * script that mints a fresh one per request walks straight past it — a
+     * limiter keyed only on attacker-controlled input bounds nothing. The IP
+     * ceiling is what actually closes that: far above what a room of people
+     * sharing one venue NAT can produce, far below what a loop does in a
+     * second.
+     */
+    const perSession = await rateLimit(
+      `events:s:${sessionId || clientIp(request)}`,
+      120,
+      60
+    );
+    if (perSession.limited) return perSession.response;
+
+    const perIp = await rateLimit(`events:ip:${clientIp(request)}`, 1200, 60);
+    if (perIp.limited) return perIp.response;
 
     if (!EVENT_TYPES.has(eventType)) {
       throw new ApiError(`Unknown event type "${eventType}".`, 400);
