@@ -99,6 +99,19 @@ export async function POST(request: NextRequest) {
       const intelligence = await gatherRepoIntelligence(parsed.owner, parsed.repo);
       analysis = await analyzeRepository(intelligence);
       repoInfo = intelligence.repoInfo;
+
+      /**
+       * A repo's homepage field is almost always the deployed product, and it
+       * is the only place a destination for the generated call to action can
+       * come from on this path. Stored after the fact because the project row
+       * is written before GitHub is called, so the id exists to resume from
+       * even if the repo turns out to be unreadable.
+       */
+      const homepage = repoInfo.homepage ? toAbsoluteUrl(repoInfo.homepage) : null;
+      if (homepage) {
+        productUrlValue = homepage;
+        await db`UPDATE projects SET product_url = ${homepage} WHERE id = ${projectId}`;
+      }
     } else if (kind === 'url') {
       const absolute = toAbsoluteUrl(raw);
       if (!absolute) {

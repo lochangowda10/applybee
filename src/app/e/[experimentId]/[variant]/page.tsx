@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { Fragment, useState, useEffect, useCallback, use } from "react";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
 
 interface LandingContent {
@@ -16,6 +16,11 @@ interface PositioningHypothesis {
   id: string;
   headline: string;
   subheadline: string;
+  /**
+   * Which of the two opposing framings this variant argues. It drives the
+   * page's structure, not just its words — see SECTION_ORDER.
+   */
+  type?: "outcome-pain" | "capability-transformation";
   color_scheme: { primary: string; secondary: string; accent: string };
 }
 
@@ -24,6 +29,8 @@ interface VariantData {
   name: string;
   positioning: PositioningHypothesis;
   landingContent: LandingContent;
+  /** Where the call to action sends people. Null when nothing was deployed. */
+  destination?: string | null;
 }
 
 /**
@@ -51,6 +58,94 @@ function readableOn(hex: string): string {
   const againstBlack = (L + 0.05) / 0.05;
   return againstBlack >= againstWhite ? "#0a0a0a" : "#ffffff";
 }
+
+/**
+ * The call to action.
+ *
+ * Renders a real link whenever the project has somewhere to send people — the
+ * deployed product, or the repository it was read from. It opens in a new tab
+ * deliberately: the visitor still has a question to answer further down this
+ * page, and navigating away loses the written answer the experiment exists to
+ * collect.
+ *
+ * When the founder only described their product there is genuinely nowhere to
+ * go, so it stays a button and acknowledges the click instead. Either way the
+ * click is recorded first, so the metric counts the same thing on both paths.
+ */
+function Cta({
+  label,
+  destination,
+  accent,
+  onActivate,
+  confirmed,
+}: {
+  label: string;
+  destination: string | null;
+  accent: string;
+  onActivate: () => void;
+  confirmed?: boolean;
+}) {
+  const className =
+    "h-12 px-8 rounded-xl text-sm font-semibold transition-all hover:opacity-90 inline-flex items-center gap-2";
+  const style = { background: accent, color: readableOn(accent) };
+
+  // Only the dead-end button needs to confirm the click, because on that path
+  // nothing else visibly happens. A link that opened a tab has already shown
+  // the visitor something, and should stay clickable.
+  if (confirmed && !destination) {
+    return (
+      <span className={className} style={style}>
+        <Check className="w-4 h-4" />
+        Thanks!
+      </span>
+    );
+  }
+
+  if (destination) {
+    return (
+      <a
+        href={destination}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onActivate}
+        className={className}
+        style={style}
+      >
+        {label}
+        <ArrowRight className="w-4 h-4" />
+      </a>
+    );
+  }
+
+  return (
+    <button onClick={onActivate} className={className} style={style}>
+      {label}
+      <ArrowRight className="w-4 h-4" />
+    </button>
+  );
+}
+
+/**
+ * Section order, derived from the hypothesis rather than fixed.
+ *
+ * Two variants that differ only in wording are not really two variants: the
+ * visitor meets the same page twice in different paint, and the experiment can
+ * only ever measure copy. The order below is the structural half of each
+ * argument.
+ *
+ * An outcome-pain variant argues from the wound, so it opens on the problem
+ * and reaches the machinery last. A capability-transformation variant argues
+ * from what the thing can do, so it opens on the capabilities and lands on the
+ * pain only once the reader knows what is on offer. Both orders are honest
+ * presentations of the same product — which is exactly what makes the
+ * comparison worth running.
+ */
+const SECTION_ORDER = {
+  "outcome-pain": ["problem", "benefits", "howItWorks", "features"],
+  "capability-transformation": ["features", "howItWorks", "benefits", "problem"],
+} as const;
+
+type SectionKey = (typeof SECTION_ORDER)["outcome-pain"][number];
 
 export default function ExperimentPage({
   params,
@@ -203,6 +298,122 @@ export default function ExperimentPage({
 
   const content = variantData.landingContent;
   const colors = variantData.positioning.color_scheme;
+  const destination = variantData.destination ?? null;
+
+  /**
+   * Each section, unchanged in design, keyed so the order above can arrange
+   * them. The tint is passed in rather than baked in: it marks alternating
+   * bands down the page, and a reordered page must still stripe correctly.
+   */
+  const sections: Record<SectionKey, (tone: string) => React.ReactNode> = {
+    problem: (tone: string) => (
+      <section className={`border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24 ${tone}`}>
+            <div className="max-w-3xl mx-auto">
+              <h2 className="display mb-5 text-balance text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.problem.title}</h2>
+              <p className="text-muted-foreground leading-relaxed mb-8">{content.problem.description}</p>
+              <div className="space-y-3">
+                {content.problem.painPoints.map((p, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-md bg-destructive/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-destructive text-xs font-bold">{i + 1}</span>
+                    </div>
+                    <span className="text-sm">{p}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+    ),
+    benefits: (tone: string) => (
+      <section className={`border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24 ${tone}`}>
+            <div className="max-w-4xl mx-auto">
+              <h2 className="display mb-12 text-balance text-center text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.benefits.title}</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {content.benefits.items.map((b, i) => (
+                  <div key={i} className="rounded-xl border border-border/60 bg-card p-6">
+                    <div
+                      className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg font-mono text-xs tabular-nums"
+                      style={{ background: `${colors.accent}1a`, color: colors.accent }}
+                      aria-hidden="true"
+                    >
+                      {String(i + 1).padStart(2, "0")}
+                    </div>
+                    <h3 className="font-semibold mb-2">{b.title}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{b.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+    ),
+    howItWorks: (tone: string) => (
+      <section className={`border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24 ${tone}`}>
+            <div className="max-w-3xl mx-auto">
+              <h2 className="display mb-12 text-balance text-center text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.howItWorks.title}</h2>
+              <div className="space-y-8">
+                {content.howItWorks.steps.map((s, i) => (
+                  <div key={i} className="flex items-start gap-6">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-sm font-bold"
+                      style={{ background: `${colors.accent}15`, color: colors.accent }}
+                    >
+                      {s.step}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold mb-1">{s.title}</h3>
+                      <p className="text-sm text-muted-foreground">{s.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+    ),
+    features: (tone: string) => (
+      <section className={`border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24 ${tone}`}>
+            <div className="max-w-4xl mx-auto">
+              <h2 className="display mb-12 text-balance text-center text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.features.title}</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {content.features.items.map((f, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-4 rounded-xl border border-border/40 p-5 transition-colors hover:border-border"
+                  >
+                    {/* The model returns icon *names* such as "database-lock",
+                        which previously rendered as literal text in the card.
+                        A numbered accent marker is honest and stays on-brand. */}
+                    <span
+                      className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-mono text-[10px] tabular-nums"
+                      style={{ background: `${colors.accent}1a`, color: colors.accent }}
+                      aria-hidden="true"
+                    >
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="mb-1 text-sm font-semibold">{f.title}</h3>
+                      <p className="text-xs leading-relaxed text-muted-foreground">{f.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+    ),
+  };
+
+  const order =
+    SECTION_ORDER[variantData.positioning.type ?? "outcome-pain"] ??
+    SECTION_ORDER["outcome-pain"];
+
+  /**
+   * The hero carries the same split. A centred hero is a declaration; a
+   * left-aligned one reads as the opening line of an argument. Pinning it to
+   * the hypothesis means the two variants differ on sight, before anyone has
+   * read a word — which is the difference between two positionings and one
+   * page in two colours.
+   */
+  const leadsWithCapability =
+    variantData.positioning.type === "capability-transformation";
 
   return (
     <div className="min-h-screen bg-background">
@@ -215,7 +426,13 @@ export default function ExperimentPage({
           }}
         />
 
-        <div className="rise relative mx-auto max-w-3xl text-center">
+        <div
+          className={
+            leadsWithCapability
+              ? "rise relative mx-auto w-full max-w-4xl text-left"
+              : "rise relative mx-auto max-w-3xl text-center"
+          }
+        >
           <div
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs mb-8"
             style={{ borderColor: `${colors.accent}33` }}
@@ -230,140 +447,41 @@ export default function ExperimentPage({
           <h1 className="display mb-6 text-balance text-[clamp(2.1rem,7.5vw,4.5rem)]">
             {content.hero.headline}
           </h1>
-          <p className="mx-auto mb-10 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
+          <p
+            className={`mb-10 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg ${
+              leadsWithCapability ? "" : "mx-auto"
+            }`}
+          >
             {content.hero.subheadline}
           </p>
 
-          <button
-            onClick={handleCtaClick}
-            className="h-12 px-8 rounded-xl text-sm font-semibold transition-all hover:opacity-90 inline-flex items-center gap-2"
-            style={{
-              background: colors.accent,
-              color: readableOn(colors.accent),
-            }}
-          >
-            {ctaClicked ? (
-              <>
-                <Check className="w-4 h-4" />
-                Thanks!
-              </>
-            ) : (
-              <>
-                {content.hero.cta}
-                <ArrowRight className="w-4 h-4" />
-              </>
-            )}
-          </button>
+          <Cta
+            label={content.hero.cta}
+            destination={destination}
+            accent={colors.accent}
+            onActivate={handleCtaClick}
+            confirmed={ctaClicked}
+          />
           <p className="text-xs text-muted-foreground/60 mt-3">{content.hero.ctaSubtext}</p>
         </div>
       </section>
 
-      {/* Problem */}
-      <section className="border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="display mb-5 text-balance text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.problem.title}</h2>
-          <p className="text-muted-foreground leading-relaxed mb-8">{content.problem.description}</p>
-          <div className="space-y-3">
-            {content.problem.painPoints.map((p, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-md bg-destructive/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <span className="text-destructive text-xs font-bold">{i + 1}</span>
-                </div>
-                <span className="text-sm">{p}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Benefits */}
-      <section className="border-t border-border/50 bg-muted/10 px-5 py-16 sm:px-6 sm:py-24">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="display mb-12 text-balance text-center text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.benefits.title}</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {content.benefits.items.map((b, i) => (
-              <div key={i} className="rounded-xl border border-border/60 bg-card p-6">
-                <div
-                  className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg font-mono text-xs tabular-nums"
-                  style={{ background: `${colors.accent}1a`, color: colors.accent }}
-                  aria-hidden="true"
-                >
-                  {String(i + 1).padStart(2, "0")}
-                </div>
-                <h3 className="font-semibold mb-2">{b.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{b.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section className="border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="display mb-12 text-balance text-center text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.howItWorks.title}</h2>
-          <div className="space-y-8">
-            {content.howItWorks.steps.map((s, i) => (
-              <div key={i} className="flex items-start gap-6">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-sm font-bold"
-                  style={{ background: `${colors.accent}15`, color: colors.accent }}
-                >
-                  {s.step}
-                </div>
-                <div>
-                  <h3 className="font-semibold mb-1">{s.title}</h3>
-                  <p className="text-sm text-muted-foreground">{s.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="border-t border-border/50 bg-muted/10 px-5 py-16 sm:px-6 sm:py-24">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="display mb-12 text-balance text-center text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.features.title}</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {content.features.items.map((f, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-4 rounded-xl border border-border/40 p-5 transition-colors hover:border-border"
-              >
-                {/* The model returns icon *names* such as "database-lock",
-                    which previously rendered as literal text in the card.
-                    A numbered accent marker is honest and stays on-brand. */}
-                <span
-                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-mono text-[10px] tabular-nums"
-                  style={{ background: `${colors.accent}1a`, color: colors.accent }}
-                  aria-hidden="true"
-                >
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <div className="min-w-0">
-                  <h3 className="mb-1 text-sm font-semibold">{f.title}</h3>
-                  <p className="text-xs leading-relaxed text-muted-foreground">{f.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* Body sections, ordered by what this variant argues. */}
+      {order.map((key, i) => (
+        <Fragment key={key}>{sections[key](i % 2 === 1 ? "bg-muted/10" : "")}</Fragment>
+      ))}
 
       {/* Final CTA */}
       <section className="border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="display mb-5 text-balance text-[clamp(1.7rem,5vw,2.9rem)]">{content.cta.headline}</h2>
           <p className="text-muted-foreground mb-8">{content.cta.subheadline}</p>
-          <button
-            onClick={handleCtaClick}
-            className="h-12 px-8 rounded-xl text-sm font-semibold transition-all hover:opacity-90 inline-flex items-center gap-2"
-            style={{ background: colors.accent, color: readableOn(colors.accent) }}
-          >
-            {content.cta.button}
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <Cta
+            label={content.cta.button}
+            destination={destination}
+            accent={colors.accent}
+            onActivate={handleCtaClick}
+          />
         </div>
       </section>
 
