@@ -6,6 +6,7 @@ import { ArrowRight, GitBranch, Globe, Zap, BarChart3, Repeat, Sparkles, Check }
 import { humanizeError, safeJson, type FriendlyError } from "@/lib/errors";
 import { ProgressStatus, ErrorNotice } from "@/components/progress-status";
 import { PurchaseIntent } from "@/components/purchase-intent";
+import { PLANS, inr, usd, perExperimentUsd, perExperimentInr, USD_TO_INR } from "@/lib/pricing";
 
 /** The marker never changes mid-visit, so there is nothing to subscribe to. */
 function subscribeToReferrer(): () => void {
@@ -321,6 +322,10 @@ export default function Home() {
                 had. One experiment is two positions, two live pages, and the
                 rewrite that comes out of real visitor behaviour.
               </p>
+              <p className="mt-3 text-xs text-muted-foreground/70">
+                Rupee prices are set, not converted live, at ${USD_TO_INR} to the
+                dollar.
+              </p>
             </div>
 
             <div className="grid gap-5 md:grid-cols-3">
@@ -328,6 +333,7 @@ export default function Home() {
                 {
                   name: "Free",
                   price: "$0",
+                  inrPrice: "₹0",
                   unit: "1 experiment a week",
                   per: "4 a month — 8 on the waitlist",
                   points: [
@@ -337,30 +343,15 @@ export default function Home() {
                   ],
                   featured: false,
                 },
-                {
-                  name: "Starter",
-                  price: "$19",
-                  unit: "10 experiments",
-                  per: "$1.90 each",
-                  points: [
-                    "Everything in Free",
-                    "Experiments never expire",
-                    "Referral attribution",
-                  ],
-                  featured: true,
-                },
-                {
-                  name: "Growth",
-                  price: "$79",
-                  unit: "50 experiments",
-                  per: "$1.58 each",
-                  points: [
-                    "Everything in Starter",
-                    "Priority generation",
-                    "Export results as CSV",
-                  ],
-                  featured: false,
-                },
+                ...PLANS.map((p) => ({
+                  name: p.name,
+                  price: usd(p.usd),
+                  inrPrice: inr(p.inr),
+                  unit: `${p.experiments} experiments`,
+                  per: `${perExperimentUsd(p)} / ${perExperimentInr(p)} each`,
+                  points: p.points,
+                  featured: p.id === "starter",
+                })),
               ].map((t) => (
                 <div
                   key={t.name}
@@ -378,6 +369,9 @@ export default function Home() {
                     <span className="text-sm text-muted-foreground">
                       / {t.unit}
                     </span>
+                  </div>
+                  <div className="text-sm tabular-nums text-muted-foreground">
+                    {t.inrPrice}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {t.per}
@@ -436,7 +430,7 @@ export default function Home() {
                 The comparison is not another AI tool. It is a positioning
                 consultant at four figures an engagement, or a copywriter per
                 landing page, neither of which tells you what actual visitors
-                misunderstood. $1.90 buys the answer.
+                misunderstood. {perExperimentUsd(PLANS[0])} buys the answer.
               </p>
             </div>
           </div>

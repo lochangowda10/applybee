@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { safeJson } from "@/lib/errors";
+import { PLANS, inr, usd } from "@/lib/pricing";
 
 /**
  * Records that someone would pay, and shows how many already said so.
@@ -18,13 +19,9 @@ import { safeJson } from "@/lib/errors";
 type Summary = {
   total: number;
   committedUsd: number;
+  committedInr: number;
   recent: { email: string; plan: string; created_at: string }[];
 };
-
-const PLANS = [
-  { id: "starter", label: "Starter · $19" },
-  { id: "growth", label: "Growth · $79" },
-];
 
 export function PurchaseIntent() {
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -109,8 +106,11 @@ export function PurchaseIntent() {
             </div>
             <div>
               <div className="text-2xl font-bold tabular-nums">
-                ${summary.committedUsd}
+                {usd(summary.committedUsd)}
               </div>
+              <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                {inr(summary.committedInr)}
+              </p>
               <p className="label mt-1 text-muted-foreground">
                 intent, not billed
               </p>
@@ -133,7 +133,7 @@ export function PurchaseIntent() {
                   : "border-border/60 text-muted-foreground hover:text-foreground"
               }`}
             >
-              {p.label}
+              {p.name} · {usd(p.usd)} / {inr(p.inr)}
             </button>
           ))}
         </div>

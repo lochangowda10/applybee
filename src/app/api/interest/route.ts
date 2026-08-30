@@ -4,6 +4,7 @@ import { initDB } from '@/lib/init';
 import { ApiError, apiError, readJsonBody, readString } from '@/lib/api';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { setSignedUp, quotaLimits } from '@/lib/quota';
+import { PLAN_IDS, committedValue } from '@/lib/pricing';
 
 /**
  * Recorded willingness to pay.
@@ -19,7 +20,7 @@ import { setSignedUp, quotaLimits } from '@/lib/quota';
  * mailing list.
  */
 
-const PLANS = new Set(['starter', 'growth']);
+
 
 /** Deliberately permissive: rejecting valid addresses costs more than a typo does. */
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
     if (!EMAIL.test(email)) {
       throw new ApiError('That does not look like an email address.', 400);
     }
-    if (!PLANS.has(plan)) {
+    if (!PLAN_IDS.has(plan as 'starter' | 'growth')) {
       throw new ApiError(`Unknown plan "${plan}".`, 400);
     }
 
@@ -103,7 +104,10 @@ export async function GET() {
       total,
       byPlan,
       // Committed value, not revenue: these people have not been charged.
-      committedUsd: (byPlan.starter ?? 0) * 19 + (byPlan.growth ?? 0) * 79,
+      // Priced from lib/pricing.ts so this total can never quote a figure the
+      // pricing table no longer offers.
+      committedUsd: committedValue(byPlan).usd,
+      committedInr: committedValue(byPlan).inr,
       recent: recent.map((r) => ({
         email: mask(r.email),
         plan: r.plan,

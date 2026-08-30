@@ -121,8 +121,8 @@ Per-experiment credits — you pay when you learn something, not for an idle sea
 |---|---|---|
 | **Free** | $0 | 1 experiment a week, up to 4 a month |
 | **Free, on the waitlist** | $0 | 8 a month, no weekly gate |
-| **Starter** | $19 | 10 experiments · $1.90 each |
-| **Growth** | $79 | 50 experiments · $1.58 each |
+| **Starter** | $5 · ₹440 | 10 experiments · $0.50 each |
+| **Growth** | $20 · ₹1,760 | 50 experiments · $0.40 each |
 
 The free tier is **enforced, not advertised**: `/api/analyze` refuses a
 seventh project the same way it refuses a bad repo URL. The allowance is
@@ -132,7 +132,7 @@ when it resets, and offers the waitlist when joining would actually lift it.
 See `src/lib/quota.ts`; it is a different mechanism from the abuse limiter in
 `src/lib/rate-limit.ts`, and unlike that one it fails closed.
 
-**Unit economics, measured:** one complete experiment is **10,467 tokens across 5 model calls**. At nano-tier rates that is a fraction of a cent against a $1.58–$1.90 price — gross margin above 99%. Acquisition is structural rather than paid: every generated page footer links back with referral attribution, so a shared experiment is a distribution surface.
+**Unit economics, measured:** one complete experiment is **10,467 tokens across 5 model calls**. At nano-tier rates that is about a sixth of a cent against a $0.40–$0.50 price — gross margin above 99%. Rupee prices are set rather than converted live, at ₹88 to the dollar; every figure comes from `src/lib/pricing.ts`, which the pricing table, the plan picker and the committed-value total all read, so no two of them can quote different numbers. Acquisition is structural rather than paid: every generated page footer links back with referral attribution, so a shared experiment is a distribution surface.
 
 **Willingness to pay is recorded, not asserted.** The pricing section captures
 real addresses against a chosen plan and publishes the running count. It is
