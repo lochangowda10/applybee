@@ -61,6 +61,24 @@ interface AnalyticsData {
   feedback: { text: string; created_at: string }[];
 }
 
+interface V3Change {
+  field: string;
+  label: string;
+  before: string;
+  after: string;
+  reason: string;
+}
+
+interface V3Response {
+  basedOnVariant: string;
+  sampleFeedbackCount: number;
+  proposal: {
+    positioning: PositioningHypothesis;
+    changes: V3Change[];
+    summary: string;
+  };
+}
+
 interface GrowthAnalysis {
   winner: string | null;
   confidence: string;
@@ -111,6 +129,12 @@ export default function ProjectPage() {
   const [growthAnalysis, setGrowthAnalysis] = useState<GrowthAnalysis | null>(null);
   const [learningLoading, setLearningLoading] = useState(false);
 
+  // V3 — proposed, reviewed, and only then deployed
+  const [v3, setV3] = useState<V3Response | null>(null);
+  const [v3Loading, setV3Loading] = useState(false);
+  const [v3Deploying, setV3Deploying] = useState(false);
+  const [v3Deployed, setV3Deployed] = useState<{ experimentId: string } | null>(null);
+
   // Loading states
   const [positioningLoading, setPositioningLoading] = useState(false);
 
@@ -118,13 +142,28 @@ export default function ProjectPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [failure, setFailure] = useState<FriendlyError | null>(null);
 
+  /**
+   * Whether this browser owns the project. Defaults to true because a run
+   * created in this session is owned by definition — the resume path below
+   * corrects it when a shared link is opened by someone else.
+   */
+  const [isOwner, setIsOwner] = useState(true);
+
   // Load analysis on mount
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const cached = sessionStorage.getItem(`project_${projectId}`);
-      if (cached) {
-        const data = JSON.parse(cached);
+      // Corrupt or unavailable cache must fall through to the database resume
+      // below rather than throwing — the fallback already exists, and an
+      // unguarded parse here is what makes it unreachable.
+      let data: { analysis: ProductAnalysis } | null = null;
+      try {
+        const cached = sessionStorage.getItem(`project_${projectId}`);
+        if (cached) data = JSON.parse(cached);
+      } catch {
+        data = null;
+      }
+      if (data?.analysis) {
         if (cancelled) return;
         setAnalysis(data.analysis);
         setEditingAnalysis(data.analysis);
@@ -154,6 +193,7 @@ export default function ProjectPage() {
           } | null;
           experimentId?: string | null;
           variants?: VariantData[];
+          isOwner?: boolean;
           error?: string;
         }>(res);
 
@@ -164,6 +204,7 @@ export default function ProjectPage() {
 
         setAnalysis(data.analysis);
         setEditingAnalysis(data.analysis);
+        if (data.isOwner === false) setIsOwner(false);
 
         // Restore the founder's earlier answers so they are not asked twice.
         if (data.context) {
@@ -312,6 +353,52 @@ export default function ProjectPage() {
       clearInterval(id);
     };
   }, [step, experimentId]);
+
+  /**
+   * Asks for a V3 proposal. This deploys nothing — it returns a revision and
+   * the field-by-field diff behind it, so the founder approves a specific
+   * change rather than a promise that the model improved something.
+   */
+  const proposeV3 = async () => {
+    if (!experimentId) return;
+    setFailure(null);
+    setV3Loading(true);
+    try {
+      const res = await fetch(`/api/experiments/${experimentId}/v3`, { method: "POST" });
+      const data = await safeJson<V3Response & { error?: string }>(res);
+      if (!res.ok || !data.proposal) {
+        throw new Error(data.error || `Could not build a revision (${res.status})`);
+      }
+      setV3(data);
+    } catch (err: unknown) {
+      setFailure(humanizeError(err));
+    } finally {
+      setV3Loading(false);
+    }
+  };
+
+  /** The only call that puts V3 in front of a visitor. */
+  const approveV3 = async () => {
+    if (!experimentId) return;
+    setFailure(null);
+    setV3Deploying(true);
+    try {
+      const res = await fetch(`/api/experiments/${experimentId}/v3`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approve: true }),
+      });
+      const data = await safeJson<{ experimentId?: string; error?: string }>(res);
+      if (!res.ok || !data.experimentId) {
+        throw new Error(data.error || `Could not deploy (${res.status})`);
+      }
+      setV3Deployed({ experimentId: data.experimentId });
+    } catch (err: unknown) {
+      setFailure(humanizeError(err));
+    } finally {
+      setV3Deploying(false);
+    }
+  };
 
   // Run growth intelligence
   const runGrowthAnalysis = async () => {
@@ -862,9 +949,20 @@ export default function ProjectPage() {
 
         <div className="max-w-4xl mx-auto px-6 py-16">
           <h1 className="display mb-3 text-balance text-[clamp(1.9rem,5vw,2.9rem)]">What the visitors did.</h1>
-          <p className="text-muted-foreground text-sm mb-10">
+          <p className="text-muted-foreground text-sm mb-4">
             Real data from real visitors. No faking.
           </p>
+          {/*
+            Shared project links are the norm here, so say plainly which side
+            of the boundary the reader is on rather than letting them discover
+            it by clicking something that refuses.
+          */}
+          <div className="mb-10 inline-flex items-center gap-2 rounded-full border border-border/60 px-3 py-1 text-xs text-muted-foreground">
+            <Users className="w-3.5 h-3.5" />
+            {isOwner
+              ? "You started this project — the controls below are yours"
+              : "Viewing as a guest — the results are open, the controls are not"}
+          </div>
 
           {/* Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
@@ -1140,6 +1238,121 @@ export default function ProjectPage() {
               </div>
               <p className="text-lg font-semibold">{growthAnalysis.next_hypothesis}</p>
             </div>
+
+            {/*
+              V3: the step that closes the loop. It is shown as a reviewable
+              diff and it does not deploy until it is approved — a tool that
+              read visitor responses and silently rewrote the live page is
+              exactly the tool a founder should not trust.
+            */}
+            <div className="rounded-xl border border-border/60 bg-card p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-sm font-medium">Version 3</h2>
+                  <p className="mt-1 text-xs text-muted-foreground max-w-md leading-relaxed">
+                    A revision built from what the visitors did and wrote.
+                    Nothing here is live until you approve it.
+                  </p>
+                </div>
+                {!v3 &&
+                  (isOwner ? (
+                    <button
+                      onClick={proposeV3}
+                      disabled={v3Loading}
+                      className="h-10 px-5 rounded-lg bg-foreground text-background text-sm font-medium flex items-center gap-2 disabled:opacity-60"
+                    >
+                      {v3Loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {v3Loading ? "Reading the responses…" : "Propose V3"}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground max-w-[16rem] text-right leading-relaxed">
+                      Only the founder who started this project can revise it.
+                    </span>
+                  ))}
+              </div>
+
+              {v3 && (
+                <div className="mt-6">
+                  <p className="text-sm">{v3.proposal.summary}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Based on variant {v3.basedOnVariant.toUpperCase()} · grounded in{" "}
+                    {v3.sampleFeedbackCount} written{" "}
+                    {v3.sampleFeedbackCount === 1 ? "response" : "responses"}
+                    {v3.sampleFeedbackCount < 30 && " · directional, not significant"}
+                  </p>
+
+                  {v3.proposal.changes.length === 0 ? (
+                    <p className="mt-5 rounded-lg border border-border/60 p-4 text-sm text-muted-foreground">
+                      Nothing changed. The responses did not support rewriting
+                      the winning version — which is a result, not a failure.
+                    </p>
+                  ) : (
+                    <div className="mt-5 space-y-4">
+                      {v3.proposal.changes.map((c) => (
+                        <div
+                          key={c.field}
+                          className="rounded-lg border border-border/60 overflow-hidden"
+                        >
+                          <div className="px-4 py-2 border-b border-border/50 bg-muted/20">
+                            <span className="text-xs font-medium">{c.label}</span>
+                          </div>
+                          <div className="p-4 space-y-2">
+                            <p className="text-sm text-muted-foreground line-through decoration-red-500/40">
+                              {c.before}
+                            </p>
+                            <p className="text-sm text-foreground">{c.after}</p>
+                            <p className="pt-2 text-xs text-muted-foreground border-t border-border/40">
+                              <span className="text-foreground/60">Why: </span>
+                              {c.reason}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {v3Deployed ? (
+                    <div className="mt-6 rounded-lg border border-foreground/20 bg-foreground/5 p-4">
+                      <p className="text-sm font-medium">
+                        Deployed as a new experiment.
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        V3 is variant A. The version it beat is variant B, so
+                        the comparison continues rather than ending on a guess.
+                      </p>
+                      <button
+                        onClick={() => router.push(`/x/${v3Deployed.experimentId}`)}
+                        className="mt-3 text-xs underline underline-offset-4 hover:text-foreground"
+                      >
+                        Open the new experiment
+                      </button>
+                    </div>
+                  ) : (
+                    v3.proposal.changes.length > 0 && (
+                      <div className="mt-6 flex flex-wrap items-center gap-3">
+                        <button
+                          onClick={approveV3}
+                          disabled={v3Deploying}
+                          className="h-10 px-5 rounded-lg bg-foreground text-background text-sm font-medium flex items-center gap-2 disabled:opacity-60"
+                        >
+                          {v3Deploying && <Loader2 className="w-4 h-4 animate-spin" />}
+                          {v3Deploying ? "Deploying…" : "Approve and deploy V3"}
+                        </button>
+                        <button
+                          onClick={() => setV3(null)}
+                          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          Discard
+                        </button>
+                        <span className="text-xs text-muted-foreground">
+                          Approval is required. Nothing deploys on its own.
+                        </span>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-between mt-10 pt-6 border-t border-border/50">
@@ -1150,16 +1363,17 @@ export default function ProjectPage() {
               <ArrowLeft className="w-4 h-4" />
               Back to Dashboard
             </button>
-            <button
-              onClick={() => {
-                // Store the next hypothesis and potentially generate Version C
-                alert("Version C generation would create a new experiment based on the AI learning above. In the full version, this would trigger a new positioning + landing page cycle.");
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                if (!v3) void proposeV3();
               }}
-              className="h-10 px-5 rounded-lg bg-foreground text-background text-sm font-medium flex items-center gap-2"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              Generate Version C
+              {v3 ? "Review the V3 diff above" : "Propose V3"}
               <ArrowRight className="w-4 h-4" />
-            </button>
+            </a>
           </div>
         </div>
       </div>

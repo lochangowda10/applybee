@@ -48,11 +48,44 @@ const ms = (t) => `${((Date.now() - t) / 1000).toFixed(1)}s`;
  */
 const STEP_TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS) || 120_000;
 
-async function req(url, init = {}) {
+/**
+ * A cookie jar per case, because a browser is the client this product has.
+ *
+ * Project ownership travels in a signed httpOnly cookie, so a harness using
+ * bare fetch would be a different visitor on every request and would fail the
+ * ownership check for reasons no real user could hit. Carrying cookies makes
+ * each case one browser, which is what is actually being tested.
+ */
+function newJar() {
+  return new Map();
+}
+
+function jarHeader(jar) {
+  if (!jar || jar.size === 0) return {};
+  return { Cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") };
+}
+
+function storeCookies(jar, res) {
+  if (!jar) return;
+  const raw = res.headers.getSetCookie?.() ?? [];
+  for (const line of raw) {
+    const [pair] = line.split(";");
+    const at = pair.indexOf("=");
+    if (at > 0) jar.set(pair.slice(0, at).trim(), pair.slice(at + 1).trim());
+  }
+}
+
+async function req(url, init = {}, jar = null) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STEP_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const res = await fetch(url, {
+      ...init,
+      headers: { ...(init.headers || {}), ...jarHeader(jar) },
+      signal: controller.signal,
+    });
+    storeCookies(jar, res);
+    return res;
   } catch (err) {
     if (err?.name === "AbortError") {
       throw new Error(`timed out after ${STEP_TIMEOUT_MS / 1000}s: ${url}`);
@@ -75,6 +108,7 @@ async function json(res) {
 async function runCase(c) {
   const started = Date.now();
   const steps = {};
+  const jar = newJar();
   try {
     // 1. Analyze
     let t = Date.now();
@@ -82,7 +116,7 @@ async function runCase(c) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(c.body),
-    });
+    }, jar);
     let d = await json(res);
     if (!res.ok || !d.projectId) throw new Error(`analyze: ${d.error || res.status}`);
     steps.analyze = ms(t);
@@ -95,7 +129,7 @@ async function runCase(c) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectId }),
-    });
+    }, jar);
     d = await json(res);
     if (!res.ok || !d.experimentId) throw new Error(`positioning: ${d.error || res.status}`);
     if (!Array.isArray(d.variants) || d.variants.length !== 2) {
@@ -135,16 +169,63 @@ async function runCase(c) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
-    });
+    }, jar);
     d = await json(res);
     if (!res.ok || !d.analysis?.next_hypothesis) {
       throw new Error(`learning: ${d.error || res.status}`);
     }
     steps.learning = ms(t);
 
-    // 6. Resume from a cold start (Memory)
+    // 6. V3 proposal — must be a reviewable diff, and must NOT deploy itself
     t = Date.now();
-    res = await req(`${BASE}/api/projects/${projectId}`);
+    res = await req(`${BASE}/api/experiments/${experimentId}/v3`, { method: "POST" }, jar);
+    d = await json(res);
+    if (!res.ok || !d.proposal) throw new Error(`v3 propose: ${d.error || res.status}`);
+    if (d.approved !== false) throw new Error("v3 propose: returned as approved without asking");
+    if (!Array.isArray(d.proposal.changes)) throw new Error("v3 propose: no change list");
+    for (const ch of d.proposal.changes) {
+      // The diff is what a human approves on. A change whose "before" equals
+      // its "after" would mean the diff is decorative rather than computed.
+      if (ch.before === ch.after) throw new Error(`v3 propose: no-op change on ${ch.field}`);
+    }
+    steps.v3 = `${ms(t)}/${d.proposal.changes.length} changes`;
+
+    // 7. A different browser must NOT be able to deploy this founder's pages.
+    //    Checked before the real approval, so a boundary that silently stopped
+    //    working would fail the case rather than pass it quietly.
+    if (process.env.OWNER_SECRET) {
+      const stranger = await req(`${BASE}/api/experiments/${experimentId}/v3`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approve: true }),
+      }, newJar());
+      if (stranger.status !== 403) {
+        throw new Error(`ownership: a stranger got HTTP ${stranger.status}, expected 403`);
+      }
+      steps.guarded = "403";
+    }
+
+    // 8. Approval deploys a NEW experiment — this is the loop closing
+    t = Date.now();
+    res = await req(`${BASE}/api/experiments/${experimentId}/v3`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approve: true }),
+    }, jar);
+    d = await json(res);
+    if (!res.ok || !d.experimentId) throw new Error(`v3 approve: ${d.error || res.status}`);
+    if (d.experimentId === experimentId) throw new Error("v3 approve: reused the old experiment");
+    if (d.variants?.length !== 2) throw new Error(`v3 approve: expected 2 variants`);
+    const nextExperimentId = d.experimentId;
+    for (const v of ["a", "b"]) {
+      const r = await req(`${BASE}/e/${nextExperimentId}/${v}`);
+      if (!r.ok) throw new Error(`v3 variant ${v} page: HTTP ${r.status}`);
+    }
+    steps.v3deploy = ms(t);
+
+    // 9. Resume from a cold start (Memory)
+    t = Date.now();
+    res = await req(`${BASE}/api/projects/${projectId}`, {}, jar);
     d = await json(res);
     if (!res.ok || d.variants?.length !== 2) throw new Error(`resume: ${d.error || res.status}`);
     steps.resume = ms(t);

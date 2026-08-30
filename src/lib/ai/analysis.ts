@@ -396,6 +396,206 @@ Return JSON:
   );
 }
 
+/**
+ * The fields a V3 revision is allowed to change, and how to label them.
+ *
+ * Restricting the diff to a known list is what makes it reviewable: a founder
+ * approving a rewrite needs to see every change, and a diff computed over an
+ * open-ended object would silently omit whatever the model decided to add.
+ */
+const V3_FIELDS: { key: keyof PositioningHypothesis; label: string }[] = [
+  { key: 'headline', label: 'Headline' },
+  { key: 'subheadline', label: 'Subheadline' },
+  { key: 'main_promise', label: 'Main promise' },
+  { key: 'target_audience', label: 'Target audience' },
+  { key: 'primary_pain', label: 'Primary pain' },
+  { key: 'cta', label: 'Call to action' },
+  { key: 'proof_angle', label: 'Proof angle' },
+];
+
+export interface V3Change {
+  field: string;
+  label: string;
+  before: string;
+  after: string;
+  reason: string;
+}
+
+export interface V3Proposal {
+  positioning: PositioningHypothesis;
+  changes: V3Change[];
+  summary: string;
+}
+
+/**
+ * Computes the diff by comparing the stored strings, rather than asking the
+ * model to report what it changed.
+ *
+ * A model describing its own edits can be wrong in the one direction that
+ * matters here — claiming a line is unchanged when it is not — and a human is
+ * approving a deployment on the strength of this list.
+ */
+function diffPositioning(
+  before: PositioningHypothesis,
+  after: PositioningHypothesis,
+  reasons: Record<string, string>
+): V3Change[] {
+  const changes: V3Change[] = [];
+  for (const { key, label } of V3_FIELDS) {
+    const from = String(before[key] ?? '').trim();
+    const to = String(after[key] ?? '').trim();
+    if (!to || from === to) continue;
+    changes.push({
+      field: key,
+      label,
+      before: from,
+      after: to,
+      reason: reasons[key] || 'Revised in response to the visitor responses.',
+    });
+  }
+  return changes;
+}
+
+/**
+ * Proposes a third version from what visitors actually did and wrote.
+ *
+ * This is the step that makes the product a loop rather than a generator, and
+ * it deliberately returns a proposal: nothing here is deployed until a human
+ * approves it. The model is told to cite the responses, because a rewrite
+ * grounded in its own prior is just the first draft again.
+ */
+export async function generateV3(
+  winner: PositioningHypothesis,
+  learning: GrowthAnalysis,
+  analysis: ProductAnalysis,
+  visitorFeedback: string[]
+): Promise<V3Proposal> {
+  const fallback = (): V3Proposal => {
+    // Deterministic revision: lead with the hypothesis the analysis produced,
+    // and say plainly that it came from the learning step rather than a model.
+    const revised: PositioningHypothesis = {
+      ...winner,
+      id: 'a',
+      label: 'V3 — revised from visitor responses',
+      headline: learning.next_hypothesis || winner.headline,
+      subheadline: learning.recommended_changes || winner.subheadline,
+      why_this_framing:
+        'Derived from the recorded experiment results without a model call.',
+    };
+    return {
+      positioning: revised,
+      changes: diffPositioning(winner, revised, {
+        headline: 'Replaced with the next hypothesis from the results analysis.',
+        subheadline: 'Replaced with the recommended change from the results analysis.',
+      }),
+      summary:
+        'Generated without a model call, directly from the recorded experiment results.',
+    };
+  };
+
+  if (!isAIConfigured()) return fallback();
+
+  const systemPrompt = `You revise landing page positioning using evidence from a real experiment.
+
+RULES:
+- Change only what the evidence supports. Leaving a field identical is a valid answer.
+- Every change must trace to something a visitor did or wrote. Do not invent new claims about the product.
+- Sample sizes are small. Do not write copy that implies proven demand.
+- Keep the same product. You are rewriting how it is described, not what it is.
+
+Return valid JSON matching the schema.`;
+
+  // Built outside the template so the newline join stays readable.
+  const quotedFeedback =
+    visitorFeedback.length > 0
+      ? visitorFeedback.map((f) => `- "${f}"`).join('\n')
+      : '- No written responses recorded';
+
+  const userPrompt = `The winning version was:
+
+HEADLINE: ${winner.headline}
+SUBHEADLINE: ${winner.subheadline}
+MAIN PROMISE: ${winner.main_promise}
+TARGET AUDIENCE: ${winner.target_audience}
+PRIMARY PAIN: ${winner.primary_pain}
+CTA: ${winner.cta}
+PROOF ANGLE: ${winner.proof_angle}
+
+WHAT THE EXPERIMENT FOUND:
+- Confidence: ${learning.confidence}
+- Strongest message: ${learning.strongest_message}
+- Weakest message: ${learning.weakest_message}
+- Where visitors were confused: ${learning.visitor_confusion.join(' | ') || 'none recorded'}
+- Recommended changes: ${learning.recommended_changes}
+- Next hypothesis: ${learning.next_hypothesis}
+
+WHAT VISITORS ACTUALLY WROTE:
+${quotedFeedback}
+
+PRODUCT: ${analysis.product_name} — ${analysis.summary}
+
+Return JSON:
+{
+  "headline": "string",
+  "subheadline": "string",
+  "main_promise": "string",
+  "target_audience": "string",
+  "primary_pain": "string",
+  "cta": "string",
+  "proof_angle": "string",
+  "reasons": {
+    "<field name you changed>": "string - the visitor evidence that justifies this change"
+  },
+  "summary": "string - one sentence on what this revision is trying to fix"
+}`;
+
+  return withFallback(
+    async () => {
+      const result = await chatJSON<
+        Partial<PositioningHypothesis> & {
+          reasons?: Record<string, string>;
+          summary?: string;
+        }
+      >(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        { temperature: 0.6, maxTokens: 2000 }
+      );
+
+      const revised: PositioningHypothesis = {
+        ...winner,
+        id: 'a',
+        label: 'V3 — revised from visitor responses',
+        headline: result.headline?.trim() || winner.headline,
+        subheadline: result.subheadline?.trim() || winner.subheadline,
+        main_promise: result.main_promise?.trim() || winner.main_promise,
+        target_audience: result.target_audience?.trim() || winner.target_audience,
+        primary_pain: result.primary_pain?.trim() || winner.primary_pain,
+        cta: result.cta?.trim() || winner.cta,
+        proof_angle: result.proof_angle?.trim() || winner.proof_angle,
+      };
+
+      const changes = diffPositioning(winner, revised, result.reasons ?? {});
+
+      // A revision that changed nothing is a real outcome, not a failure, but
+      // it is not worth deploying — say so rather than shipping a copy.
+      return {
+        positioning: revised,
+        changes,
+        summary:
+          result.summary?.trim() ||
+          (changes.length === 0
+            ? 'The evidence did not support changing the winning version.'
+            : 'Revised in response to the recorded visitor responses.'),
+      };
+    },
+    fallback,
+    'generateV3'
+  );
+}
+
 // ===== MOCK / DEMO FUNCTIONS =====
 
 function generateMockAnalysis(intelligence: RepoIntelligence): ProductAnalysis {
