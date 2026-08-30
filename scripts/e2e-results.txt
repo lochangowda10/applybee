@@ -1,0 +1,12 @@
+running repo: swinglens … PASS (66.1s)
+running repo: sindresorhus/got … PASS (48.5s)
+running repo: expressjs/express … PASS (44.4s)
+running product url … PASS (41.5s)
+
+──────── task success ────────
+PASS  repo: swinglens          SwingLens | analyze 11.1s, positioning 34.7s, pages 0.3s, visitor 1.2s, learning 17.2s, resume 1.7s
+PASS  repo: sindresorhus/got   got | analyze 9.9s, positioning 25.1s, pages 0.3s, visitor 1.5s, learning 10.5s, resume 1.3s
+PASS  repo: expressjs/express  Express | analyze 7.4s, positioning 23.1s, pages 0.3s, visitor 0.9s, learning 11.3s, resume 1.5s
+PASS  product url              vercel.com | analyze 0.5s, positioning 29.9s, pages 0.2s, visitor 1.8s, learning 7.8s, resume 1.3s
+
+4/4 cases completed end-to-end (100%)

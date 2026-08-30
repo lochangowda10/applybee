@@ -299,16 +299,56 @@ export async function chatJSONArray<T>(
   options: { temperature?: number; maxTokens?: number } = {}
 ): Promise<T[]> {
   const parsed = await chatJSON<unknown>(messages, options);
+  return unwrapArray<T>(parsed);
+}
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * Pulls the intended list out of whatever envelope the model chose.
+ *
+ * Observed in testing, all for the same prompt:
+ *   [ {...}, {...} ]                                  a bare array
+ *   { "hypotheses": [ {...}, {...} ] }                wrapped under a key
+ *   { "hypothesis_a": {...}, "hypothesis_b": {...} }  an object of objects
+ *
+ * Arrays of objects are preferred over arrays of primitives: a single
+ * hypothesis object carries string arrays of its own (benefits, and so on),
+ * and returning one of those as "the list" would produce silently wrong
+ * output instead of an honest failure.
+ */
+export function unwrapArray<T>(parsed: unknown): T[] {
   if (Array.isArray(parsed)) return parsed as T[];
 
-  if (parsed && typeof parsed === 'object') {
-    // Take the first property whose value is a non-empty array.
-    for (const value of Object.values(parsed as Record<string, unknown>)) {
-      if (Array.isArray(value) && value.length > 0) return value as T[];
+  if (isRecord(parsed)) {
+    const values = Object.values(parsed);
+
+    // An array of objects is almost certainly the list that was asked for.
+    for (const value of values) {
+      if (Array.isArray(value) && value.length > 0 && value.every(isRecord)) {
+        return value as T[];
+      }
     }
-    // A single object where an array of one was expected.
-    if (Object.keys(parsed as object).length > 0) return [parsed as T];
+
+    // An object whose values are all objects is the list, keyed rather than
+    // indexed. Requires more than one, so a single wrapped item is not
+    // mistaken for a collection of its own fields.
+    const objectValues = values.filter(isRecord);
+    if (objectValues.length > 1 && objectValues.length === values.length) {
+      return objectValues as T[];
+    }
+
+    // A list of primitives counts only when the object is a bare envelope
+    // with a single key, e.g. { "items": ["a", "b"] }. On a many-keyed object
+    // the arrays are that object's own fields — a hypothesis carries its own
+    // benefits list — and returning one of those would be silently wrong.
+    if (values.length === 1 && Array.isArray(values[0]) && values[0].length > 0) {
+      return values[0] as T[];
+    }
+
+    // A single object where a list of one was expected.
+    if (values.length > 0) return [parsed as T];
   }
 
   throw new Error('AI returned no usable array. Please try again.');

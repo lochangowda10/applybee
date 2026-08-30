@@ -212,33 +212,40 @@ Return a JSON array with exactly 2 positioning hypotheses matching this schema:
   "color_scheme": { "primary": "#hex", "secondary": "#hex", "accent": "#hex" }
 }]`;
 
-  const hypotheses = await withFallback(
-    () =>
-      chatJSONArray<PositioningHypothesis>(
+  // The downstream loop and the /e/[experimentId]/[variant] route both assume
+  // exactly two variants keyed 'a' and 'b'. Normalize rather than trust the
+  // model to have honoured "exactly 2 items".
+  const normalize = (list: PositioningHypothesis[]): PositioningHypothesis[] =>
+    list.slice(0, 2).map((h, i) => ({
+      ...h,
+      id: i === 0 ? 'a' : 'b',
+      label: h?.label || (i === 0 ? 'Positioning A' : 'Positioning B'),
+    }));
+
+  return withFallback(
+    async () => {
+      const hypotheses = await chatJSONArray<PositioningHypothesis>(
         [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
         { temperature: 0.7, maxTokens: 3000 }
-      ),
-    () => generateMockPositioning(analysis, founderContext),
+      );
+      const normalized = normalize(hypotheses);
+      // Returning one variant would leave the experiment with nothing to
+      // compare against, so treat it as a failed generation and let the
+      // fallback supply a complete pair. Measured on expressjs/express,
+      // where the model answered with a single keyed object.
+      if (normalized.length < 2) {
+        throw new Error(
+          `Model returned ${normalized.length} positioning hypothesis, expected 2.`
+        );
+      }
+      return normalized;
+    },
+    () => normalize(generateMockPositioning(analysis, founderContext)),
     'generatePositioning'
   );
-
-  // The downstream loop and the /e/[experimentId]/[variant] route both assume
-  // exactly two variants keyed 'a' and 'b'. Normalize rather than trust the
-  // model to have honoured "exactly 2 items".
-  const normalized = hypotheses.slice(0, 2).map((h, i) => ({
-    ...h,
-    id: i === 0 ? 'a' : 'b',
-    label: h?.label || (i === 0 ? 'Positioning A' : 'Positioning B'),
-  }));
-
-  if (normalized.length < 2) {
-    throw new Error('AI returned fewer than two positioning hypotheses. Please try again.');
-  }
-
-  return normalized;
 }
 
 export async function generateLandingContent(
