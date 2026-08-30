@@ -26,6 +26,32 @@ interface VariantData {
   landingContent: LandingContent;
 }
 
+/**
+ * Picks black or white for text sitting on an arbitrary background.
+ *
+ * The accent colour is chosen by the model, not by us, so a hardcoded white
+ * label fails badly on the lighter greens and ambers it likes to produce.
+ * Uses the WCAG relative-luminance formula rather than a naive average.
+ */
+function readableOn(hex: string): string {
+  const m = /^#?([a-fA-F0-9]{2})([a-fA-F0-9]{2})([a-fA-F0-9]{2})$/.exec(
+    (hex ?? "").trim()
+  );
+  if (!m) return "#0a0a0a";
+  const channel = (v: string) => {
+    const c = parseInt(v, 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const L =
+    0.2126 * channel(m[1]) + 0.7152 * channel(m[2]) + 0.0722 * channel(m[3]);
+  // Compare the actual WCAG contrast ratios rather than guessing a lightness
+  // threshold: against amber, a naive cut-off picks white at roughly 2.1:1
+  // where black scores 9.6:1.
+  const againstWhite = 1.05 / (L + 0.05);
+  const againstBlack = (L + 0.05) / 0.05;
+  return againstBlack >= againstWhite ? "#0a0a0a" : "#ffffff";
+}
+
 export default function ExperimentPage({
   params,
 }: {
@@ -126,8 +152,11 @@ export default function ExperimentPage({
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
+          <p className="label mt-4">Loading experiment</p>
+        </div>
       </div>
     );
   }
@@ -149,7 +178,7 @@ export default function ExperimentPage({
   return (
     <div className="min-h-screen bg-background">
       {/* Hero */}
-      <section className="relative min-h-[85vh] flex items-center justify-center px-6 overflow-hidden">
+      <section className="relative flex min-h-[88vh] items-center justify-center overflow-hidden px-5 py-20 sm:px-6">
         <div
           className="absolute inset-0 opacity-[0.03]"
           style={{
@@ -157,7 +186,7 @@ export default function ExperimentPage({
           }}
         />
 
-        <div className="relative max-w-3xl mx-auto text-center">
+        <div className="rise relative mx-auto max-w-3xl text-center">
           <div
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs mb-8"
             style={{ borderColor: `${colors.accent}33` }}
@@ -166,10 +195,13 @@ export default function ExperimentPage({
             Live experiment
           </div>
 
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.08] mb-6">
+          {/* Headlines are model-written and vary wildly in length, so the
+              scale is fluid rather than stepped: a 14-word headline must not
+              overflow a phone. */}
+          <h1 className="display mb-6 text-balance text-[clamp(2.1rem,7.5vw,4.5rem)]">
             {content.hero.headline}
           </h1>
-          <p className="text-lg text-muted-foreground max-w-xl mx-auto mb-10 leading-relaxed">
+          <p className="mx-auto mb-10 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
             {content.hero.subheadline}
           </p>
 
@@ -178,7 +210,7 @@ export default function ExperimentPage({
             className="h-12 px-8 rounded-xl text-sm font-semibold transition-all hover:opacity-90 inline-flex items-center gap-2"
             style={{
               background: colors.accent,
-              color: "#fff",
+              color: readableOn(colors.accent),
             }}
           >
             {ctaClicked ? (
@@ -198,9 +230,9 @@ export default function ExperimentPage({
       </section>
 
       {/* Problem */}
-      <section className="py-24 px-6 border-t border-border/50">
+      <section className="border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-3xl font-bold mb-4">{content.problem.title}</h2>
+          <h2 className="display mb-5 text-balance text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.problem.title}</h2>
           <p className="text-muted-foreground leading-relaxed mb-8">{content.problem.description}</p>
           <div className="space-y-3">
             {content.problem.painPoints.map((p, i) => (
@@ -216,17 +248,18 @@ export default function ExperimentPage({
       </section>
 
       {/* Benefits */}
-      <section className="py-24 px-6 border-t border-border/50 bg-muted/10">
+      <section className="border-t border-border/50 bg-muted/10 px-5 py-16 sm:px-6 sm:py-24">
         <div className="max-w-4xl mx-auto">
-          <h2 className="text-3xl font-bold mb-12 text-center">{content.benefits.title}</h2>
+          <h2 className="display mb-12 text-balance text-center text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.benefits.title}</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {content.benefits.items.map((b, i) => (
               <div key={i} className="rounded-xl border border-border/60 bg-card p-6">
                 <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center mb-4"
-                  style={{ background: `${colors.accent}15` }}
+                  className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg font-mono text-xs tabular-nums"
+                  style={{ background: `${colors.accent}1a`, color: colors.accent }}
+                  aria-hidden="true"
                 >
-                  <span className="text-lg">{["✦", "◆", "●"][i]}</span>
+                  {String(i + 1).padStart(2, "0")}
                 </div>
                 <h3 className="font-semibold mb-2">{b.title}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">{b.description}</p>
@@ -237,9 +270,9 @@ export default function ExperimentPage({
       </section>
 
       {/* How It Works */}
-      <section className="py-24 px-6 border-t border-border/50">
+      <section className="border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-3xl font-bold mb-12 text-center">{content.howItWorks.title}</h2>
+          <h2 className="display mb-12 text-balance text-center text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.howItWorks.title}</h2>
           <div className="space-y-8">
             {content.howItWorks.steps.map((s, i) => (
               <div key={i} className="flex items-start gap-6">
@@ -260,16 +293,28 @@ export default function ExperimentPage({
       </section>
 
       {/* Features */}
-      <section className="py-24 px-6 border-t border-border/50 bg-muted/10">
+      <section className="border-t border-border/50 bg-muted/10 px-5 py-16 sm:px-6 sm:py-24">
         <div className="max-w-4xl mx-auto">
-          <h2 className="text-3xl font-bold mb-12 text-center">{content.features.title}</h2>
+          <h2 className="display mb-12 text-balance text-center text-[clamp(1.6rem,4.5vw,2.5rem)]">{content.features.title}</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {content.features.items.map((f, i) => (
-              <div key={i} className="flex items-start gap-4 p-4 rounded-xl border border-border/40">
-                <span className="text-xl">{f.icon}</span>
-                <div>
-                  <h3 className="font-semibold text-sm mb-1">{f.title}</h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{f.description}</p>
+              <div
+                key={i}
+                className="flex items-start gap-4 rounded-xl border border-border/40 p-5 transition-colors hover:border-border"
+              >
+                {/* The model returns icon *names* such as "database-lock",
+                    which previously rendered as literal text in the card.
+                    A numbered accent marker is honest and stays on-brand. */}
+                <span
+                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-mono text-[10px] tabular-nums"
+                  style={{ background: `${colors.accent}1a`, color: colors.accent }}
+                  aria-hidden="true"
+                >
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <div className="min-w-0">
+                  <h3 className="mb-1 text-sm font-semibold">{f.title}</h3>
+                  <p className="text-xs leading-relaxed text-muted-foreground">{f.description}</p>
                 </div>
               </div>
             ))}
@@ -278,14 +323,14 @@ export default function ExperimentPage({
       </section>
 
       {/* Final CTA */}
-      <section className="py-24 px-6 border-t border-border/50">
+      <section className="border-t border-border/50 px-5 py-16 sm:px-6 sm:py-24">
         <div className="max-w-2xl mx-auto text-center">
-          <h2 className="text-3xl font-bold mb-4">{content.cta.headline}</h2>
+          <h2 className="display mb-5 text-balance text-[clamp(1.7rem,5vw,2.9rem)]">{content.cta.headline}</h2>
           <p className="text-muted-foreground mb-8">{content.cta.subheadline}</p>
           <button
             onClick={handleCtaClick}
             className="h-12 px-8 rounded-xl text-sm font-semibold transition-all hover:opacity-90 inline-flex items-center gap-2"
-            style={{ background: colors.accent, color: "#fff" }}
+            style={{ background: colors.accent, color: readableOn(colors.accent) }}
           >
             {content.cta.button}
             <ArrowRight className="w-4 h-4" />
@@ -294,7 +339,7 @@ export default function ExperimentPage({
       </section>
 
       {/* Feedback */}
-      <section className="py-16 px-6 border-t border-border/50 bg-muted/5">
+      <section className="border-t border-border/50 bg-muted/5 px-5 py-14 sm:px-6 sm:py-16">
         <div className="max-w-lg mx-auto text-center">
           {feedbackSubmitted ? (
             <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">

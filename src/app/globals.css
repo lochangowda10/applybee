@@ -49,38 +49,58 @@
 }
 
 :root {
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* ------------------------------------------------------------------
+     Dark editorial palette.
+
+     Dark is the product's only theme, so it is defined on :root rather
+     than behind a .dark class — every existing bg-background /
+     text-foreground / border-border in the app inherits it.
+
+     One accent (emerald) carries brand and success. Amber is reserved
+     strictly for the "directional, not significant" caution, so a warning
+     never has to compete with decoration for attention.
+     ------------------------------------------------------------------ */
+  --background: oklch(0.145 0.004 260);
+  --foreground: oklch(0.97 0.002 260);
+
+  --card: oklch(0.183 0.005 260);
+  --card-foreground: oklch(0.97 0.002 260);
+  --popover: oklch(0.183 0.005 260);
+  --popover-foreground: oklch(0.97 0.002 260);
+
+  --primary: oklch(0.97 0.002 260);
+  --primary-foreground: oklch(0.145 0.004 260);
+  --secondary: oklch(0.24 0.006 260);
+  --secondary-foreground: oklch(0.97 0.002 260);
+
+  --muted: oklch(0.24 0.006 260);
+  --muted-foreground: oklch(0.66 0.008 260);
+
+  --accent: oklch(0.76 0.15 162);
+  --accent-foreground: oklch(0.145 0.004 260);
+
+  --destructive: oklch(0.68 0.19 25);
+
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.76 0.15 162 / 45%);
+
+  --chart-1: oklch(0.76 0.15 162);
+  --chart-2: oklch(0.70 0.14 274);
+  --chart-3: oklch(0.78 0.14 85);
+  --chart-4: oklch(0.62 0.02 260);
+  --chart-5: oklch(0.45 0.01 260);
+
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+
+  --sidebar: oklch(0.183 0.005 260);
+  --sidebar-foreground: oklch(0.97 0.002 260);
+  --sidebar-primary: oklch(0.76 0.15 162);
+  --sidebar-primary-foreground: oklch(0.145 0.004 260);
+  --sidebar-accent: oklch(0.24 0.006 260);
+  --sidebar-accent-foreground: oklch(0.97 0.002 260);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.76 0.15 162 / 45%);
 }
 
 .dark {
@@ -126,5 +146,46 @@
   }
   html {
     @apply font-sans;
+    color-scheme: dark;
+  }
+
+  /* Large headings get the serif and negative tracking. Below this size the
+     serif loses its authority and the sans is more legible, so the split is
+     by role rather than applied globally. */
+  .display {
+    font-family: var(--font-display), Georgia, "Times New Roman", serif;
+    font-weight: 400;
+    letter-spacing: -0.022em;
+    line-height: 1.03;
+  }
+
+  /* Small uppercase mono labels — the editorial device that carries section
+     numbering and data labels throughout. */
+  .label {
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--muted-foreground);
+  }
+
+  /* Entrance motion, used once per section and never on interaction. */
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .rise {
+    animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rise {
+      animation: none;
+    }
   }
 }

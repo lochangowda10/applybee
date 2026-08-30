@@ -111,9 +111,9 @@ export default function Home() {
       <main className="pt-14">
         <section className="relative min-h-[90vh] flex items-center justify-center px-6">
           {/* Subtle gradient */}
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(120,119,198,0.15),transparent)]" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_75%_45%_at_50%_-15%,color-mix(in_oklch,var(--accent)_14%,transparent),transparent)]" />
 
-          <div className="relative max-w-3xl mx-auto text-center">
+          <div className="rise relative mx-auto max-w-3xl text-center">
             {/* Badge */}
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-border/60 bg-muted/30 text-xs text-muted-foreground mb-8">
               <Sparkles className="w-3.5 h-3.5" />
@@ -121,16 +121,17 @@ export default function Home() {
             </div>
 
             {/* Headline */}
-            <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.08] mb-6">
-              Paste your repo.
+            <h1 className="display mb-6 text-balance text-[clamp(2.4rem,8vw,5rem)]">
+              Nobody understands
               <br />
-              <span className="text-muted-foreground">We&apos;ll make people care.</span>
+              <span className="text-muted-foreground">what you built.</span>
             </h1>
 
             {/* Subtitle */}
-            <p className="text-lg text-muted-foreground max-w-xl mx-auto mb-10 leading-relaxed">
-              LaunchLoop analyzes your product, generates competing landing page experiments,
-              deploys them live, and learns from real visitor behavior.
+            <p className="mx-auto mb-10 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
+              LaunchLoop writes two opposing positions for your product, deploys
+              both as real landing pages, and lets actual visitors tell you which
+              one lands — and what they misread.
             </p>
 
             {/* Input Form */}
@@ -254,7 +255,7 @@ export default function Home() {
               <Repeat className="w-3.5 h-3.5" />
               Closed Feedback Loop
             </div>
-            <h2 className="text-3xl font-bold mb-4">
+            <h2 className="display mb-5 text-balance text-[clamp(1.8rem,5vw,2.8rem)]">
               Not just generation. Continuous improvement.
             </h2>
             <p className="text-muted-foreground max-w-lg mx-auto leading-relaxed">
@@ -280,7 +281,7 @@ export default function Home() {
         <section id="pricing" className="py-24 px-6 border-t border-border/50">
           <div className="max-w-5xl mx-auto">
             <div className="text-center mb-14">
-              <h2 className="text-3xl font-bold mb-4">Priced per experiment</h2>
+              <h2 className="display mb-5 text-balance text-[clamp(1.8rem,5vw,2.8rem)]">Priced per experiment</h2>
               <p className="text-muted-foreground max-w-xl mx-auto leading-relaxed">
                 You pay when you learn something, not for a seat you forgot you
                 had. One experiment is two positions, two live pages, and the
@@ -407,9 +408,19 @@ export default function Home() {
 
         {/* Footer */}
         <footer className="py-8 px-6 border-t border-border/50">
-          <div className="max-w-6xl mx-auto flex items-center justify-between text-xs text-muted-foreground/60">
+          <div className="mx-auto flex max-w-6xl flex-col gap-3 text-xs text-muted-foreground/60 sm:flex-row sm:items-center sm:justify-between">
             <span>LaunchLoop AI — THE HIVE / ApplyBee Hackathon 2026</span>
-            <span>Built to ship, not to demo.</span>
+            <nav className="flex items-center gap-5">
+              <a href="/demo" className="transition-colors hover:text-foreground">
+                Recorded run
+              </a>
+              <a href="/referrals" className="transition-colors hover:text-foreground">
+                Referral chain
+              </a>
+              <a href="#pricing" className="transition-colors hover:text-foreground">
+                Pricing
+              </a>
+            </nav>
           </div>
         </footer>
       </main>

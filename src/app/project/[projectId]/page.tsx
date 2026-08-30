@@ -334,7 +334,7 @@ export default function ProjectPage() {
             <div className="w-12 h-12 rounded-xl bg-foreground flex items-center justify-center mx-auto mb-6">
               <Zap className="w-6 h-6 text-background" />
             </div>
-            <h1 className="text-2xl font-bold mb-2">Analyzing your product…</h1>
+            <h1 className="display mb-3 text-[clamp(1.6rem,4.5vw,2.2rem)]">Analyzing your product</h1>
             <p className="text-sm text-muted-foreground">
               This usually takes 10-30 seconds
             </p>
@@ -382,7 +382,7 @@ export default function ProjectPage() {
         <div className="max-w-3xl mx-auto px-6 py-16">
           <div className="flex items-center justify-between mb-10">
             <div>
-              <h1 className="text-3xl font-bold mb-2">We think this is what you&apos;ve built.</h1>
+              <h1 className="display mb-3 text-balance text-[clamp(1.9rem,5vw,2.9rem)]">We think this is what you&apos;ve built.</h1>
               <p className="text-muted-foreground text-sm">
                 Review our analysis. Edit anything that looks wrong.
               </p>
@@ -560,7 +560,7 @@ export default function ProjectPage() {
         </nav>
 
         <div className="max-w-2xl mx-auto px-6 py-16">
-          <h1 className="text-3xl font-bold mb-2">Tell us what the code cannot.</h1>
+          <h1 className="display mb-3 text-balance text-[clamp(1.9rem,5vw,2.9rem)]">Tell us what the code cannot.</h1>
           <p className="text-muted-foreground text-sm mb-10">
             A few questions to sharpen the positioning. Be as specific as you can.
           </p>
@@ -681,7 +681,7 @@ export default function ProjectPage() {
         </nav>
 
         <div className="max-w-4xl mx-auto px-6 py-16">
-          <h1 className="text-3xl font-bold mb-2">Experiments are live.</h1>
+          <h1 className="display mb-3 text-balance text-[clamp(1.9rem,5vw,2.9rem)]">Experiments are live.</h1>
           <p className="text-muted-foreground text-sm mb-10">
             Share this QR code with real people. Every visit is tracked.
           </p>
@@ -822,7 +822,7 @@ export default function ProjectPage() {
         </nav>
 
         <div className="max-w-4xl mx-auto px-6 py-16">
-          <h1 className="text-3xl font-bold mb-2">Live Growth Dashboard</h1>
+          <h1 className="display mb-3 text-balance text-[clamp(1.9rem,5vw,2.9rem)]">What the visitors did.</h1>
           <p className="text-muted-foreground text-sm mb-10">
             Real data from real visitors. No faking.
           </p>
@@ -869,25 +869,43 @@ export default function ProjectPage() {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="mb-4 grid grid-cols-3 gap-4">
                     <div>
-                      <div className="text-2xl font-bold">{a.views}</div>
-                      <div className="text-xs text-muted-foreground">Views</div>
+                      <div className="font-mono text-2xl tabular-nums">{a.views}</div>
+                      <div className="mt-1 text-[11px] uppercase tracking-widest text-muted-foreground">
+                        Views
+                      </div>
                     </div>
                     <div>
-                      <div className="text-2xl font-bold">{a.clicks}</div>
-                      <div className="text-xs text-muted-foreground">Clicks</div>
+                      <div className="font-mono text-2xl tabular-nums">{a.clicks}</div>
+                      <div className="mt-1 text-[11px] uppercase tracking-widest text-muted-foreground">
+                        Clicks
+                      </div>
                     </div>
                     <div>
-                      <div className="text-2xl font-bold">{a.conversion}%</div>
-                      <div className="text-xs text-muted-foreground">Conversion</div>
+                      <div className="font-mono text-2xl tabular-nums text-accent">
+                        {a.conversion}%
+                      </div>
+                      <div className="mt-1 text-[11px] uppercase tracking-widest text-muted-foreground">
+                        Click rate
+                      </div>
                     </div>
+                  </div>
+
+                  {/* No rate is shown without the sample it came from. */}
+                  <div className="mb-4 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+                    n&nbsp;=&nbsp;{a.views}
+                    {a.views < 30 && (
+                      <span className="ml-2 text-amber-500/80">
+                        directional, not significant
+                      </span>
+                    )}
                   </div>
 
                   {/* Conversion bar */}
                   <div className="h-2 rounded-full bg-muted/30 overflow-hidden mb-4">
                     <div
-                      className="h-full bg-foreground/60 rounded-full transition-all"
+                      className="h-full rounded-full bg-accent transition-all duration-500"
                       style={{ width: `${Math.min(parseFloat(a.conversion), 100)}%` }}
                     />
                   </div>
@@ -970,7 +988,7 @@ export default function ProjectPage() {
         </nav>
 
         <div className="max-w-3xl mx-auto px-6 py-16">
-          <h1 className="text-3xl font-bold mb-2">What did we learn?</h1>
+          <h1 className="display mb-3 text-balance text-[clamp(1.9rem,5vw,2.9rem)]">What did we learn?</h1>
           <p className="text-muted-foreground text-sm mb-10">
             AI analysis of your experiment results and feedback.
           </p>
