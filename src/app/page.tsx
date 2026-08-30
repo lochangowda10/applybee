@@ -3,19 +3,20 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, GitBranch, Globe, Zap, BarChart3, Repeat, Sparkles } from "lucide-react";
+import { humanizeError, safeJson, type FriendlyError } from "@/lib/errors";
+import { ProgressStatus, ErrorNotice } from "@/components/progress-status";
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<FriendlyError | null>(null);
   const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const runAnalysis = async () => {
     if (!url.trim()) return;
 
     setLoading(true);
-    setError("");
+    setError(null);
 
     try {
       const isGitHub = url.includes("github.com");
@@ -27,17 +28,25 @@ export default function Home() {
         body: JSON.stringify(body),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Analysis failed");
+      // Parse defensively: a 500 or a gateway error returns HTML, and calling
+      // .json() on that throws a parser error that means nothing to a user.
+      const data = await safeJson<{ projectId?: string; error?: string }>(res);
+      if (!res.ok || !data.projectId) {
+        throw new Error(data.error || `Analysis failed (${res.status})`);
+      }
 
-      // Store in sessionStorage for the project page
       sessionStorage.setItem(`project_${data.projectId}`, JSON.stringify(data));
       router.push(`/project/${data.projectId}`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(humanizeError(err));
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void runAnalysis();
   };
 
   return (
@@ -119,8 +128,26 @@ export default function Home() {
                   )}
                 </button>
               </div>
-              {error && (
-                <p className="mt-3 text-sm text-destructive text-left">{error}</p>
+              {loading && (
+                <ProgressStatus
+                  className="mt-5 rounded-lg border border-border bg-card p-4 text-left"
+                  expectedSeconds={12}
+                  stages={[
+                    "Fetching the repository",
+                    "Reading the file tree",
+                    "Extracting key files",
+                    "Working out what the product does",
+                  ]}
+                />
+              )}
+              {error && !loading && (
+                <ErrorNotice
+                  className="mt-4"
+                  message={error.message}
+                  action={error.action}
+                  retryable={error.retryable}
+                  onRetry={() => void runAnalysis()}
+                />
               )}
             </form>
 

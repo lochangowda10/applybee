@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowRight, ArrowLeft, Check, Copy, ExternalLink, BarChart3, Lightbulb, Users, MessageSquare, TrendingUp, Loader2, Zap, Globe } from "lucide-react";
 import QRCode from "qrcode";
+import { humanizeError, safeJson, type FriendlyError } from "@/lib/errors";
+import { ProgressStatus, ErrorNotice } from "@/components/progress-status";
 
 // Types
 interface ProductAnalysis {
@@ -113,6 +115,7 @@ export default function ProjectPage() {
 
   // Copy feedback
   const [copied, setCopied] = useState<string | null>(null);
+  const [failure, setFailure] = useState<FriendlyError | null>(null);
 
   // Load analysis on mount
   useEffect(() => {
@@ -148,6 +151,7 @@ export default function ProjectPage() {
 
   // Save founder context and generate positioning
   const handleContinueToPositioning = async () => {
+    setFailure(null);
     setPositioningLoading(true);
     setStep("positioning");
 
@@ -172,8 +176,10 @@ export default function ProjectPage() {
         body: JSON.stringify({ projectId }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const data = await safeJson<{ experimentId?: string; variants?: VariantData[]; error?: string }>(res);
+      if (!res.ok || !data.experimentId || !data.variants) {
+        throw new Error(data.error || `Positioning failed (${res.status})`);
+      }
 
       setExperimentId(data.experimentId);
       setVariants(data.variants);
@@ -193,8 +199,7 @@ export default function ProjectPage() {
 
       setStep("live");
     } catch (err: unknown) {
-      console.error(err);
-      alert(err instanceof Error ? err.message : "Failed to generate positioning");
+      setFailure(humanizeError(err));
       setStep("context");
     } finally {
       setPositioningLoading(false);
@@ -206,7 +211,7 @@ export default function ProjectPage() {
     if (!experimentId) return;
     try {
       const res = await fetch(`/api/experiments/${experimentId}/events`);
-      const data = await res.json();
+      const data = await safeJson<{ analytics?: AnalyticsData[] }>(res);
       setAnalytics(data.analytics || []);
     } catch (err) {
       console.error(err);
@@ -216,17 +221,20 @@ export default function ProjectPage() {
   // Run growth intelligence
   const runGrowthAnalysis = async () => {
     if (!experimentId) return;
+    setFailure(null);
     setLearningLoading(true);
     try {
       const res = await fetch(`/api/experiments/${experimentId}/learning`, {
         method: "POST",
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const data = await safeJson<{ analysis?: GrowthAnalysis; error?: string }>(res);
+      if (!res.ok || !data.analysis) {
+        throw new Error(data.error || `Analysis failed (${res.status})`);
+      }
       setGrowthAnalysis(data.analysis);
       setStep("learning");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Analysis failed");
+      setFailure(humanizeError(err));
     } finally {
       setLearningLoading(false);
     }
@@ -508,6 +516,16 @@ export default function ProjectPage() {
             />
           </div>
 
+          {failure && (
+            <ErrorNotice
+              className="mt-8"
+              message={failure.message}
+              action={failure.action}
+              retryable={failure.retryable}
+              onRetry={() => void handleContinueToPositioning()}
+            />
+          )}
+
           <div className="flex items-center justify-between mt-10 pt-6 border-t border-border/50">
             <button
               onClick={() => setStep("analysis")}
@@ -542,10 +560,27 @@ export default function ProjectPage() {
   if (step === "positioning" && positioningLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-muted-foreground" />
-          <h2 className="text-xl font-bold mb-2">Generating positioning hypotheses…</h2>
-          <p className="text-sm text-muted-foreground">Creating two distinct ways to present your product</p>
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center">
+            <h2 className="mb-2 text-xl font-bold">
+              Generating positioning hypotheses…
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Writing two genuinely different ways to present your product, then
+              building a landing page for each.
+            </p>
+          </div>
+          <ProgressStatus
+            className="rounded-lg border border-border bg-card p-5"
+            expectedSeconds={25}
+            stages={[
+              "Framing the outcome-led position",
+              "Framing the capability-led position",
+              "Writing landing page A",
+              "Writing landing page B",
+              "Deploying both to live URLs",
+            ]}
+          />
         </div>
       </div>
     );
