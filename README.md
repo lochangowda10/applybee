@@ -29,12 +29,24 @@ Positioning is normally a guess a founder makes once, alone, and never tests. La
               ↓
    What visitors MISUNDERSTOOD           ← qualitative, not just conversion %
               ↓
-       A proposed V3 rewrite             ← never auto-deployed; a human approves
+       A proposed V3 rewrite             ← a reviewable diff, field by field
+              ↓
+        A human approves it               ← nothing deploys on its own
+              ↓
+   V3 ships as variant A of the next      ← the version it beat becomes B,
+   experiment, against the old winner        so the comparison never stops
               ↓
             repeat ↺
 ```
 
 The V3 step is what makes this a loop rather than a generator. Most AI page tools stop at "here is a landing page." LaunchLoop's output is a *finding*: which framing worked, which confused people, and what to say instead.
+
+And V3 is presented as a **diff, not a redraft** — every changed line shown
+beside the line it replaces, with the visitor evidence that justifies it. The
+diff is computed by comparing the stored strings rather than asking the model
+to describe its own edits, because a model can be wrong in the one direction
+that matters here: claiming a line is unchanged when it is not. A human is
+approving a deployment on the strength of that list.
 
 ### Three ways in
 
@@ -102,6 +114,13 @@ Per-experiment credits — you pay when you learn something, not for an idle sea
 
 **Unit economics, measured:** one complete experiment is **10,467 tokens across 5 model calls**. At nano-tier rates that is a fraction of a cent against a $1.58–$1.90 price — gross margin above 99%. Acquisition is structural rather than paid: every generated page footer links back with referral attribution, so a shared experiment is a distribution surface.
 
+**Willingness to pay is recorded, not asserted.** The pricing section captures
+real addresses against a chosen plan and publishes the running count. It is
+labelled as intent rather than revenue everywhere it appears, because nobody
+has been charged — a surface that blurred the two would be doing exactly what
+this product criticises other tools for. Submissions deduplicate by address,
+so the number cannot be inflated by submitting twice.
+
 The alternative isn't another AI tool. It's a positioning consultant at four figures, or a copywriter per page — neither of whom tells you what visitors actually misunderstood.
 
 ---
@@ -125,6 +144,7 @@ npm run dev
 | `AI_MODEL` | No | Default `gpt-5-nano` |
 | `AI_TIMEOUT_MS` | No | Per-call ceiling, default `20000` |
 | `GITHUB_TOKEN` | No | Raises GitHub's limit from 60/hr to 5,000/hr |
+| `OWNER_SECRET` | No | Signs the project-ownership cookie. Unset = every project stays unclaimed |
 
 Without `OPENAI_API_KEY` the app runs on deterministic generated content rather than failing.
 
@@ -139,13 +159,16 @@ src/
 │   │   ├── analyze/                  # repo / product-URL / description → product analysis
 │   │   ├── context/                  # founder's own answers
 │   │   ├── positioning/              # two hypotheses + two landing pages
+│   │   ├── interest/                 # recorded willingness to pay
 │   │   ├── projects/[projectId]/     # rehydrate a run from the database
 │   │   └── experiments/[experimentId]/
 │   │       ├── events/               # page views, CTA clicks
 │   │       ├── feedback/             # the one question visitors answer
-│   │       ├── learning/             # V3 proposal
+│   │       ├── learning/             # what the results mean
+│   │       ├── v3/                   # propose a diff; approve to deploy
 │   │       └── variant/              # variant content
 │   ├── e/[experimentId]/[variant]/   # the live landing pages visitors see
+│   ├── error.tsx, global-error.tsx   # boundaries: a crash keeps the frame
 │   ├── x/[experimentId]/             # 50/50 assignment, sticky per visitor
 │   ├── project/[projectId]/          # founder's dashboard
 │   ├── demo/                         # recorded run, no live AI call needed
@@ -164,6 +187,7 @@ src/
 │   └── db-schema.ts                  # schema init, one transaction
 ├── components/
 │   ├── progress-status.tsx           # honest progress + error presentation
+│   ├── purchase-intent.tsx           # pricing capture + live count
 │   └── ui/                           # shadcn/ui
 └── scripts/e2e.mjs                   # the harness behind the table above
 ```
@@ -184,6 +208,34 @@ src/
 
 **Errors are translated before they're shown.** Provider strings like `AI API error (400): {"error":...}` never reach a user; they map to a plain sentence, a next action, and whether retrying will help. At the API layer the same rule holds: a caller's mistake returns its own message, anything internal is logged in full and answered generically, so a failure can't leak configuration detail into a browser.
 
+**The V3 diff is computed, not narrated.** The model returns a revised
+positioning and its reasons; the change list is produced by comparing the old
+and new strings field by field. Asking a model to report what it changed
+invites the one error that breaks the feature — a line reported as untouched
+that is not — and this list is what a founder approves a deployment on.
+
+**Approval is a separate request, not a checkbox.** Proposing V3 and deploying
+it are two different calls, and the deploying one is the only path that puts a
+page in front of a visitor. A tool that read visitor responses and quietly
+rewrote the live page would be the version of this product nobody should trust.
+
+**Boundaries assume the thing that failed is the thing you'd rely on.** The
+root boundary ships its own markup and inline styles, since a root-layout
+failure may mean the stylesheet never loaded. The landing-page boundary
+deliberately records no event: a page that failed to render was not a page
+view, and inflating the count with crashes would corrupt the exact number a
+founder is about to draw a conclusion from.
+
+**Ownership without a sign-up form.** Asking a founder to create an account
+before they have seen the product costs more users than it protects, so a
+project is claimed by an anonymous id in a signed httpOnly cookie. It is a
+real authorization boundary for writes — the id is HMAC-signed, so nobody can
+mint one for someone else's project — while reads stay open, because a
+dashboard only its author can open is a worse product. The whole mechanism is
+inert unless `OWNER_SECRET` is set, so a deployment that has not opted in
+behaves exactly as it did before rather than locking people out of their own
+work over a missing variable.
+
 **Input is classified server-side, not guessed by the client.** The page sends what was typed; the server decides whether it is a repo, a URL, or prose. Guessing in the browser is what previously routed a typed paragraph into the URL field, where it reached `new URL()` and threw a 500.
 
 ---
@@ -191,9 +243,10 @@ src/
 ## Honest limitations
 
 - Sample sizes in a hackathon setting are small. The product says so on every screen rather than implying significance it hasn't earned.
-- There is no authentication. Anyone holding a project URL can view its dashboard, and the ids are unguessable UUIDs rather than a real access control. This is the largest known gap.
+- Ownership is anonymous and browser-scoped, not account authentication. A project is claimed by whoever created it via a signed httpOnly cookie, and founder-side writes — saving answers, deploying pages, approving V3 — are refused to anyone else. But it is one browser, not an account: clear the cookie and you lose the claim, and there is no way to sign in from a second device. Reading stays deliberately open, since these links are meant to be shared.
 - Visitor events are validated but not rate limited, so the counts assume good faith. Fine for a demo; not for production.
 - V3 is proposed, never auto-deployed — deliberate, but it does mean the loop needs one human step to close.
+- Recorded willingness to pay is intent, not revenue. Nobody has been charged and there is no checkout; the count says so wherever it appears.
 
 ---
 

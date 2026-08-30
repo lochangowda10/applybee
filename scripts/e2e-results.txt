@@ -1,16 +1,6 @@
-running repo: swinglens … PASS (43.0s)
-running repo: sindresorhus/got … PASS (41.2s)
-running repo: expressjs/express … PASS (37.0s)
-running product url: vercel … PASS (40.5s)
-running product url: bare domain … PASS (39.7s)
-running plain description … PASS (36.0s)
-
-──────── task success ────────
-PASS  repo: swinglens          SwingLens | analyze 8.8s, positioning 24.0s, pages 0.2s, visitor 1.0s, learning 7.8s, resume 1.2s
-PASS  repo: sindresorhus/got   got | analyze 7.1s, positioning 23.1s, pages 0.1s, visitor 0.9s, learning 8.7s, resume 1.2s
-PASS  repo: expressjs/express  Express | analyze 6.3s, positioning 20.0s, pages 0.1s, visitor 1.0s, learning 8.5s, resume 1.2s
-PASS  product url: vercel      Agentic Infrastructure - Vercel (Vercel Agent / Agent Stack) | analyze 6.9s, positioning 22.7s, pages 0.1s, visitor 1.0s, learning 8.7s, resume 1.2s
-PASS  product url: bare domain Linear | analyze 5.3s, positioning 23.4s, pages 0.1s, visitor 1.2s, learning 8.6s, resume 1.2s
-PASS  plain description        Not specified | analyze 7.3s, positioning 18.5s, pages 0.1s, visitor 1.0s, learning 8.0s, resume 1.2s
-
-6/6 cases completed end-to-end (100%)
+running repo: swinglens … PASS (75.5s)
+running repo: sindresorhus/got … PASS (73.0s)
+running repo: expressjs/express … PASS (73.6s)
+running product url: vercel … PASS (77.1s)
+running product url: bare domain … PASS (74.5s)
+running plain description … 

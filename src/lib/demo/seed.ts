@@ -60,8 +60,18 @@ export async function ensureDemoSeed(): Promise<void> {
   if (seeded) return;
   await initDB();
 
+  /**
+   * The completeness check reads the row this function writes LAST, not the
+   * first one.
+   *
+   * Checking for the experiment row meant a database seeded by an earlier
+   * version of this seeder looked finished, so anything added here afterwards
+   * silently never ran against it — which is exactly what happened when the
+   * learning row was added. Anchoring on the last write makes an older seed
+   * top itself up instead of being mistaken for a complete one.
+   */
   const existing = await db<{ id: string }>`
-    SELECT id FROM experiments WHERE id = ${DEMO_EXPERIMENT_ID}
+    SELECT id FROM experiment_learnings WHERE id = ${DEMO_LEARNING_ID}
   `;
   if (existing.length > 0) {
     seeded = true;

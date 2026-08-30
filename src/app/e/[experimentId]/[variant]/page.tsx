@@ -63,6 +63,8 @@ export default function ExperimentPage({
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [feedbackSending, setFeedbackSending] = useState(false);
+  const [feedbackFailed, setFeedbackFailed] = useState(false);
   const [ctaClicked, setCtaClicked] = useState(false);
 
   /**
@@ -144,11 +146,21 @@ export default function ExperimentPage({
     });
   };
 
-  // Submit feedback
+  /**
+   * Sends the visitor's answer.
+   *
+   * The success state used to be set whether or not the request succeeded, so
+   * a dropped response showed the same thank-you as a saved one. That is the
+   * worst available outcome for this product specifically: the written answers
+   * are the qualitative half of the result, and silently losing them while
+   * telling the visitor it worked would corrupt the finding and hide it.
+   */
   const handleFeedback = async () => {
-    if (!variantData || !feedback.trim()) return;
+    if (!variantData || !feedback.trim() || feedbackSending) return;
+    setFeedbackSending(true);
+    setFeedbackFailed(false);
     try {
-      await fetch(`/api/experiments/${experimentId}/feedback`, {
+      const res = await fetch(`/api/experiments/${experimentId}/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -156,10 +168,14 @@ export default function ExperimentPage({
           text: feedback.trim(),
         }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setFeedbackSubmitted(true);
       setFeedback("");
     } catch {
-      // Silent fail for feedback
+      // Keep what they typed, so retrying does not mean typing it again.
+      setFeedbackFailed(true);
+    } finally {
+      setFeedbackSending(false);
     }
   };
 
@@ -375,12 +391,17 @@ export default function ExperimentPage({
                 />
                 <button
                   onClick={handleFeedback}
-                  disabled={!feedback.trim()}
+                  disabled={!feedback.trim() || feedbackSending}
                   className="h-10 px-4 rounded-lg border border-border text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-40"
                 >
-                  Send
+                  {feedbackSending ? "Sending…" : "Send"}
                 </button>
               </div>
+              {feedbackFailed && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  That didn&rsquo;t send. Your answer is still here — try again.
+                </p>
+              )}
             </>
           )}
         </div>
